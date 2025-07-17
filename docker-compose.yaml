@@ -35,7 +35,8 @@ services:
       - METRICS_PORT=9090
       - HEALTH_CHECK_INTERVAL=30s
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
     volumes:
       - ./logs:/app/logs
     restart: unless-stopped
@@ -58,6 +59,12 @@ services:
     networks:
       - prom-eth-network
     command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ppassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 volumes:
   mysql_data:

@@ -1,5 +1,5 @@
 -- Prometheus to MySQL ETL 数据库迁移脚本
--- 创建数据库和表结构
+-- 创建表结构并插入GPU查询配置
 
 -- 设置字符集
 SET NAMES utf8mb4;
@@ -46,8 +46,8 @@ CREATE TABLE IF NOT EXISTS `query_executions` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci 
 COMMENT='查询执行记录表';
 
--- ===== 3. 查询配置表 (可选) =====
--- 存储查询配置信息，支持动态配置管理
+-- ===== 3. 查询配置表 =====
+-- 存储查询配置信息
 CREATE TABLE IF NOT EXISTS `query_configs` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `query_id` varchar(100) NOT NULL UNIQUE COMMENT '查询ID',
@@ -86,71 +86,9 @@ CREATE TABLE IF NOT EXISTS `system_status` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci 
 COMMENT='系统状态表';
 
--- ===== 5. 插入初始配置数据 =====
--- 插入默认的查询配置
+-- ===== 5. 插入GPU利用率查询配置 =====
 INSERT INTO `query_configs` (`query_id`, `name`, `description`, `query`, `schedule`, `timeout`, `table_name`, `tags`, `enabled`, `retry_count`, `retry_interval`) VALUES
-('cpu_usage', 'CPU 使用率监控', '监控各节点的 CPU 使用率', '100 - (avg by (instance) (\n  irate(node_cpu_seconds_total{mode=\"idle\"}[5m])\n) * 100)', '0 */1 * * * *', '30s', 'cpu_metrics', '[\"performance\", \"system\"]', 1, 3, '10s'),
-('memory_usage', '内存使用率监控', '监控各节点的内存使用率', '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100', '0 */2 * * * *', '30s', 'memory_metrics', '[\"performance\", \"memory\"]', 1, 3, '10s'),
-('disk_usage', '磁盘使用率监控', '监控各节点的磁盘使用率', '100 - ((node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"rootfs\"} / \nnode_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"rootfs\"}) * 100)', '0 */5 * * * *', '30s', 'disk_metrics', '[\"performance\", \"storage\"]', 1, 3, '10s'),
-('network_traffic', '网络流量监控', '监控网络接口的流量', 'rate(node_network_receive_bytes_total{device!=\"lo\"}[5m])', '0 */2 * * * *', '30s', 'network_metrics', '[\"network\", \"traffic\"]', 1, 3, '10s'),
-('load_average', '系统负载监控', '监控系统1分钟负载平均值', 'node_load1', '0 */1 * * * *', '30s', 'load_metrics', '[\"performance\", \"load\"]', 1, 3, '10s'),
-('up_status', '服务状态监控', '监控各服务的运行状态', 'up', '*/30 * * * * *', '15s', 'service_status', '[\"availability\", \"health\"]', 1, 2, '5s')
-ON DUPLICATE KEY UPDATE 
-  `name` = VALUES(`name`),
-  `description` = VALUES(`description`),
-  `query` = VALUES(`query`),
-  `schedule` = VALUES(`schedule`),
-  `updated_at` = CURRENT_TIMESTAMP;
-
--- ===== 6. 创建视图 =====
--- 创建最新指标数据视图
-CREATE OR REPLACE VIEW `latest_metrics_view` AS
-SELECT 
-    md.query_id,
-    md.metric_name,
-    md.labels,
-    md.value,
-    md.timestamp,
-    md.result_type,
-    qc.name as query_name,
-    qc.description as query_description
-FROM metrics_data md
-INNER JOIN (
-    SELECT query_id, metric_name, MAX(timestamp) as max_timestamp
-    FROM metrics_data
-    GROUP BY query_id, metric_name
-) latest ON md.query_id = latest.query_id 
-    AND md.metric_name = latest.metric_name 
-    AND md.timestamp = latest.max_timestamp
-LEFT JOIN query_configs qc ON md.query_id = qc.query_id
-ORDER BY md.timestamp DESC;
-
--- ===== 7. 创建存储过程 =====
--- 清理过期数据的存储过程
-DELIMITER //
-CREATE PROCEDURE `CleanupOldMetrics`(IN days_to_keep INT)
-BEGIN
-    DECLARE done INT DEFAULT FALSE;
-    DECLARE table_name VARCHAR(100);
-    DECLARE cleanup_date TIMESTAMP;
-    
-    SET cleanup_date = DATE_SUB(NOW(), INTERVAL days_to_keep DAY);
-    
-    -- 清理指标数据
-    DELETE FROM metrics_data WHERE collected_at < cleanup_date;
-    
-    -- 清理执行记录
-    DELETE FROM query_executions WHERE created_at < cleanup_date;
-    
-    -- 清理系统状态
-    DELETE FROM system_status WHERE created_at < cleanup_date;
-    
-    SELECT CONCAT('Cleaned up data older than ', days_to_keep, ' days') as result;
-END //
-DELIMITER ;
+('gpu_utilization_hourly', 'GPU利用率统计', '每小时统计GPU利用率 - 计算sh-07-d-run集群GPU Pod利用率', 'count_over_time((count(kpanda_gpu_pod_utilization{cluster_name="sh-07-d-run"}) by (UUID,node))[1d:1d] offset 1d) * 60 / 3600', '0 0 * * * *', '120s', 'gpu_metrics', '[\"gpu\", \"utilization\", \"hourly\"]', 1, 3, '30s');
 
 -- 恢复外键检查
-SET FOREIGN_KEY_CHECKS = 1;
-
--- 显示创建的表
-SHOW TABLES; 
+SET FOREIGN_KEY_CHECKS = 1; 
