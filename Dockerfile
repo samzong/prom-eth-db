@@ -46,9 +46,6 @@ WORKDIR /app
 # Copy binary from build stage
 COPY --from=builder /app/prom-eth-db .
 
-# Copy configuration files
-COPY --from=builder /app/configs ./configs
-
 # Create logs directory
 RUN mkdir -p logs && chown -R appuser:appuser /app
 

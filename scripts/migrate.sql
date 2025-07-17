@@ -89,11 +89,11 @@ COMMENT='系统状态表';
 -- ===== 5. 插入初始配置数据 =====
 -- 插入默认的查询配置
 INSERT INTO `query_configs` (`query_id`, `name`, `description`, `query`, `schedule`, `timeout`, `table_name`, `tags`, `enabled`, `retry_count`, `retry_interval`) VALUES
-('cpu_usage', 'CPU 使用率监控', '监控各节点的 CPU 使用率', '100 - (avg by (instance) (\n  irate(node_cpu_seconds_total{mode=\"idle\"}[5m])\n) * 100)', '*/1 * * * *', '30s', 'cpu_metrics', '[\"performance\", \"system\"]', 1, 3, '10s'),
-('memory_usage', '内存使用率监控', '监控各节点的内存使用率', '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100', '*/2 * * * *', '30s', 'memory_metrics', '[\"performance\", \"memory\"]', 1, 3, '10s'),
-('disk_usage', '磁盘使用率监控', '监控各节点的磁盘使用率', '100 - ((node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"rootfs\"} / \nnode_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"rootfs\"}) * 100)', '*/5 * * * *', '30s', 'disk_metrics', '[\"performance\", \"storage\"]', 1, 3, '10s'),
-('network_traffic', '网络流量监控', '监控网络接口的流量', 'rate(node_network_receive_bytes_total{device!=\"lo\"}[5m])', '*/2 * * * *', '30s', 'network_metrics', '[\"network\", \"traffic\"]', 1, 3, '10s'),
-('load_average', '系统负载监控', '监控系统1分钟负载平均值', 'node_load1', '*/1 * * * *', '30s', 'load_metrics', '[\"performance\", \"load\"]', 1, 3, '10s'),
+('cpu_usage', 'CPU 使用率监控', '监控各节点的 CPU 使用率', '100 - (avg by (instance) (\n  irate(node_cpu_seconds_total{mode=\"idle\"}[5m])\n) * 100)', '0 */1 * * * *', '30s', 'cpu_metrics', '[\"performance\", \"system\"]', 1, 3, '10s'),
+('memory_usage', '内存使用率监控', '监控各节点的内存使用率', '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100', '0 */2 * * * *', '30s', 'memory_metrics', '[\"performance\", \"memory\"]', 1, 3, '10s'),
+('disk_usage', '磁盘使用率监控', '监控各节点的磁盘使用率', '100 - ((node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"rootfs\"} / \nnode_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"rootfs\"}) * 100)', '0 */5 * * * *', '30s', 'disk_metrics', '[\"performance\", \"storage\"]', 1, 3, '10s'),
+('network_traffic', '网络流量监控', '监控网络接口的流量', 'rate(node_network_receive_bytes_total{device!=\"lo\"}[5m])', '0 */2 * * * *', '30s', 'network_metrics', '[\"network\", \"traffic\"]', 1, 3, '10s'),
+('load_average', '系统负载监控', '监控系统1分钟负载平均值', 'node_load1', '0 */1 * * * *', '30s', 'load_metrics', '[\"performance\", \"load\"]', 1, 3, '10s'),
 ('up_status', '服务状态监控', '监控各服务的运行状态', 'up', '*/30 * * * * *', '15s', 'service_status', '[\"availability\", \"health\"]', 1, 2, '5s')
 ON DUPLICATE KEY UPDATE 
   `name` = VALUES(`name`),
