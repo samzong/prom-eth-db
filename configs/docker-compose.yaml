@@ -1,0 +1,79 @@
+services:
+  prom-eth-db:
+    build:
+      context: ..
+      args:
+        VERSION: ${VERSION:-dev}
+        BUILD_TIME: ${BUILD_TIME:-2024-01-01T00:00:00Z}
+        GO_VERSION: ${GO_VERSION:-go1.21}
+    ports:
+      - "8082:8080"
+      - "9090:9090"
+    environment:
+      # Prometheus 配置 - 使用用户提供的开发环境地址
+      - PROMETHEUS_URL=http://10.20.100.200:30588/select/0/prometheus
+      - PROMETHEUS_TIMEOUT=30s
+      - PROMETHEUS_AUTH_TYPE=none
+
+      # MySQL 配置
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_DATABASE=prometheus_data
+      - MYSQL_USERNAME=root
+      - MYSQL_PASSWORD=password
+      - MYSQL_CHARSET=utf8mb4
+      - MYSQL_MAX_CONNECTIONS=100
+      - MYSQL_MAX_IDLE_CONNECTIONS=10
+      - MYSQL_CONNECTION_MAX_LIFETIME=3600
+
+      # 应用配置
+      - LOG_LEVEL=info
+      - HTTP_PORT=8080
+      - WORKER_POOL_SIZE=10
+      - DEFAULT_QUERY_TIMEOUT=60s
+      - METRICS_ENABLED=true
+      - METRICS_PORT=9090
+      - HEALTH_CHECK_INTERVAL=30s
+    depends_on:
+      - mysql
+    volumes:
+      - ../logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - prom-eth-network
+
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=password
+      - MYSQL_DATABASE=prometheus_data
+      - MYSQL_CHARACTER_SET_SERVER=utf8mb4
+      - MYSQL_COLLATION_SERVER=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./scripts/migrate.sql:/docker-entrypoint-initdb.d/migrate.sql
+    restart: unless-stopped
+    networks:
+      - prom-eth-network
+    command: --default-authentication-plugin=mysql_native_password
+
+  # 可选：添加 Adminer 进行数据库管理
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8081:8080"
+    depends_on:
+      - mysql
+    restart: unless-stopped
+    networks:
+      - prom-eth-network
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  prom-eth-network:
+    driver: bridge
