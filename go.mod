@@ -1,4 +1,4 @@
-module github.com/samzong/prom-eth-db
+module github.com/samzong/prom-etl-db
 
 go 1.21
 

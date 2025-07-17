@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
-	"github.com/samzong/prom-eth-db/internal/config"
-	"github.com/samzong/prom-eth-db/internal/database"
-	"github.com/samzong/prom-eth-db/internal/executor"
-	"github.com/samzong/prom-eth-db/internal/logger"
-	"github.com/samzong/prom-eth-db/internal/models"
-	"github.com/samzong/prom-eth-db/internal/prometheus"
+	"github.com/samzong/prom-etl-db/internal/config"
+	"github.com/samzong/prom-etl-db/internal/database"
+	"github.com/samzong/prom-etl-db/internal/executor"
+	"github.com/samzong/prom-etl-db/internal/logger"
+	"github.com/samzong/prom-etl-db/internal/models"
+	"github.com/samzong/prom-etl-db/internal/prometheus"
 )
 
 // Version information (set by build flags)
@@ -27,7 +27,7 @@ var (
 
 func main() {
 	// Print version information
-	fmt.Printf("prom-eth-db %s (built: %s, go: %s)\n", version, buildTime, goVersion)
+	fmt.Printf("prom-etl-db %s (built: %s, go: %s)\n", version, buildTime, goVersion)
 
 	// Load configuration (without queries)
 	cfg, err := config.LoadConfig()
@@ -38,7 +38,7 @@ func main() {
 
 	// Create logger
 	log := logger.NewLogger(cfg.App.LogLevel)
-	log.Info("Starting prom-eth-db", 
+	log.Info("Starting prom-etl-db", 
 		"version", version,
 		"build_time", buildTime,
 		"go_version", goVersion)

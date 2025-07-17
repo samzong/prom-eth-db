@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/samzong/prom-eth-db/internal/models"
+	"github.com/samzong/prom-etl-db/internal/models"
 )
 
 // Client represents a Prometheus client
@@ -63,7 +63,7 @@ func (c *Client) QueryInstant(ctx context.Context, query string) (*models.Promet
 
 	// Set headers
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "prom-eth-db/1.0")
+	req.Header.Set("User-Agent", "prom-etl-db/1.0")
 
 	// Execute request
 	resp, err := c.httpClient.Do(req)
@@ -124,7 +124,7 @@ func (c *Client) QueryRange(ctx context.Context, query string, start, end time.T
 
 	// Set headers
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "prom-eth-db/1.0")
+	req.Header.Set("User-Agent", "prom-etl-db/1.0")
 
 	// Execute request
 	resp, err := c.httpClient.Do(req)
@@ -182,7 +182,7 @@ func (c *Client) GetMetrics(ctx context.Context) ([]string, error) {
 
 	// Set headers
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "prom-eth-db/1.0")
+	req.Header.Set("User-Agent", "prom-etl-db/1.0")
 
 	// Execute request
 	resp, err := c.httpClient.Do(req)

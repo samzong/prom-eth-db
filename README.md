@@ -57,7 +57,7 @@ mysql -u root -p prometheus_data < scripts/migrate.sql
 docker-compose -f configs/docker-compose.yaml up -d
 
 # 查看日志
-docker-compose -f configs/docker-compose.yaml logs -f prom-eth-db
+docker-compose -f configs/docker-compose.yaml logs -f prom-etl-db
 ```
 
 #### 方式二：本地运行
@@ -225,7 +225,7 @@ mysql_connections_idle
    SELECT * FROM query_executions WHERE status = 'failed' ORDER BY start_time DESC LIMIT 10;
    
    # 检查日志
-   docker-compose logs prom-eth-db
+   docker-compose logs prom-etl-db
    ```
 
 ### 日志级别
@@ -239,7 +239,7 @@ export LOG_LEVEL=debug
 
 ### 项目结构
 ```
-prom-eth-db/
+prom-etl-db/
 ├── cmd/server/main.go          # 程序入口
 ├── internal/
 │   ├── config/config.go        # 配置管理
@@ -260,10 +260,10 @@ prom-eth-db/
 go test ./...
 
 # 构建二进制文件
-go build -o prom-eth-db cmd/server/main.go
+go build -o prom-etl-db cmd/server/main.go
 
 # 构建 Docker 镜像
-docker build -t prom-eth-db .
+docker build -t prom-etl-db .
 ```
 
 ## 许可证

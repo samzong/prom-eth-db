@@ -1,20 +1,20 @@
 kind: Deployment
 apiVersion: apps/v1
 metadata:
-  name: prom-eth-db
+  name: prom-etl-db
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: prom-eth-db
+      app: prom-etl-db
   template:
     metadata:
       labels:
-        app: prom-eth-db
+        app: prom-etl-db
     spec:
       containers:
-        - name: prom-eth-db
-          image: prom-eth-db:v0.1.0 # update image
+        - name: prom-etl-db
+          image: prom-etl-db:v0.1.0 # update image
           env:
             - name: PROMETHEUS_URL
               value: >-
@@ -26,7 +26,7 @@ spec:
             - name: MYSQL_PASSWORD
               value: password
             - name: MYSQL_DATABASE
-              value: prom-eth-db
+              value: prom-etl-db
             - name: MYSQL_PORT
               value: '3306'
           terminationMessagePath: /dev/termination-log

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/samzong/prom-eth-db/internal/models"
+	"github.com/samzong/prom-etl-db/internal/models"
 	"github.com/spf13/viper"
 )
 

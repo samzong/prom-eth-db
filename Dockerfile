@@ -27,7 +27,7 @@ COPY . .
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags "-X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.goVersion=${GO_VERSION}" \
-    -o prom-eth-db \
+    -o prom-etl-db \
     ./cmd/server/main.go
 
 # Runtime stage
@@ -44,7 +44,7 @@ RUN addgroup -g 1001 appuser && \
 WORKDIR /app
 
 # Copy binary from build stage
-COPY --from=builder /app/prom-eth-db .
+COPY --from=builder /app/prom-etl-db .
 
 # Create logs directory
 RUN mkdir -p logs && chown -R appuser:appuser /app
@@ -60,4 +60,4 @@ EXPOSE 8080 9090
 #   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 # Run the application
-CMD ["./prom-eth-db"] 
+CMD ["./prom-etl-db"] 

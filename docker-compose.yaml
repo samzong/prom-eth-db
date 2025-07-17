@@ -1,5 +1,5 @@
 services:
-  prom-eth-db:
+  prom-etl-db:
     build:
       context: .
       args:

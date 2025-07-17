@@ -1,13 +1,13 @@
 # Prometheus to MySQL ETL - Makefile
 
 # 项目信息
-PROJECT_NAME := prom-eth-db
+PROJECT_NAME := prom-etl-db
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 GO_VERSION := $(shell go version | awk '{print $$3}')
 
 # 构建配置
-BINARY_NAME := prom-eth-db
+BINARY_NAME := prom-etl-db
 MAIN_PATH := ./cmd/server
 BUILD_DIR := ./build
 DOCKER_IMAGE := $(PROJECT_NAME):$(VERSION)

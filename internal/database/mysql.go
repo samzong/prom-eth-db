@@ -7,7 +7,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/samzong/prom-eth-db/internal/models"
+	"github.com/samzong/prom-etl-db/internal/models"
 )
 
 // DB represents a database connection

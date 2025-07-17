@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/samzong/prom-eth-db/internal/database"
-	"github.com/samzong/prom-eth-db/internal/logger"
-	"github.com/samzong/prom-eth-db/internal/models"
-	"github.com/samzong/prom-eth-db/internal/prometheus"
+	"github.com/samzong/prom-etl-db/internal/database"
+	"github.com/samzong/prom-etl-db/internal/logger"
+	"github.com/samzong/prom-etl-db/internal/models"
+	"github.com/samzong/prom-etl-db/internal/prometheus"
 )
 
 // Executor handles query execution and data storage

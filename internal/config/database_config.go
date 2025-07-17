@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/samzong/prom-eth-db/internal/models"
+	"github.com/samzong/prom-etl-db/internal/models"
 )
 
 // LoadQueriesFromDB loads query configurations from the database
