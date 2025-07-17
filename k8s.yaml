@@ -1,0 +1,59 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: prom-eth-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prom-eth-db
+  template:
+    metadata:
+      labels:
+        app: prom-eth-db
+    spec:
+      containers:
+        - name: prom-eth-db
+          image: prom-eth-db:v0.1.0 # update image
+          env:
+            - name: PROMETHEUS_URL
+              value: >-
+                http://vmselect-insight-victoria-metrics-k8s-stack.insight-system.svc.cluster.local:8481/select/0/prometheus
+            - name: MYSQL_HOST
+              value: 192.168.0.76
+            - name: MYSQL_USERNAME
+              value: root
+            - name: MYSQL_PASSWORD
+              value: password
+            - name: MYSQL_DATABASE
+              value: prom-eth-db
+            - name: MYSQL_PORT
+              value: '3306'
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: false
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      securityContext: {}
+      affinity: {}
+      schedulerName: default-scheduler
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 300
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 300
+      dnsConfig: {}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 600

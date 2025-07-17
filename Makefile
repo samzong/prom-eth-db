@@ -119,4 +119,4 @@ env: ## 显示环境变量
 	@env | grep -E "^(PROMETHEUS|MYSQL|LOG|HTTP|WORKER)" | sort
 
 # 默认目标
-.DEFAULT_GOAL := help 
+.DEFAULT_GOAL := help
