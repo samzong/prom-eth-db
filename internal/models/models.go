@@ -26,6 +26,15 @@ type VectorSample struct {
 	Value  []interface{}     `json:"value"`
 }
 
+// MatrixResult represents a matrix query result (for range queries)
+type MatrixResult []MatrixSample
+
+// MatrixSample represents a single sample in matrix result
+type MatrixSample struct {
+	Metric map[string]string `json:"metric"`
+	Values [][]interface{}   `json:"values"`
+}
+
 // MetricRecord represents a metric record to be stored in database
 type MetricRecord struct {
 	ID          int64                  `json:"id"`
@@ -133,6 +142,22 @@ func (pr *PrometheusResponse) ParseVectorResult() (VectorResult, error) {
 	}
 
 	return vectorResult, nil
+}
+
+// ParseMatrixResult parses matrix result from Prometheus response
+func (pr *PrometheusResponse) ParseMatrixResult() (MatrixResult, error) {
+	resultBytes, err := json.Marshal(pr.Data.Result)
+	if err != nil {
+		return nil, err
+	}
+
+	var matrixResult MatrixResult
+	err = json.Unmarshal(resultBytes, &matrixResult)
+	if err != nil {
+		return nil, err
+	}
+
+	return matrixResult, nil
 }
 
 // ToMetricRecord converts VectorSample to MetricRecord

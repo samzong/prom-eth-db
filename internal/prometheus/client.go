@@ -13,6 +13,41 @@ import (
 	"github.com/samzong/prom-etl-db/internal/timeparser"
 )
 
+// parseStepDuration parses step duration with support for additional units like 'd' (days)
+func parseStepDuration(stepStr string) (time.Duration, error) {
+	// Try standard Go duration parsing first
+	if duration, err := time.ParseDuration(stepStr); err == nil {
+		return duration, nil
+	}
+
+	// Handle custom units like 'd' (days)
+	if len(stepStr) < 2 {
+		return 0, fmt.Errorf("invalid step duration format: %s", stepStr)
+	}
+
+	// Extract number and unit
+	unit := stepStr[len(stepStr)-1:]
+	numberStr := stepStr[:len(stepStr)-1]
+
+	// Parse the number part
+	var number float64
+	if _, err := fmt.Sscanf(numberStr, "%f", &number); err != nil {
+		return 0, fmt.Errorf("invalid number in step duration: %s", numberStr)
+	}
+
+	// Convert based on unit
+	switch unit {
+	case "d":
+		// 1 day = 24 hours
+		return time.Duration(number * 24 * float64(time.Hour)), nil
+	case "w":
+		// 1 week = 7 days = 168 hours
+		return time.Duration(number * 7 * 24 * float64(time.Hour)), nil
+	default:
+		return 0, fmt.Errorf("unsupported step duration unit: %s (supported: ns, us, ms, s, m, h, d, w)", unit)
+	}
+}
+
 // Client represents a Prometheus client
 type Client struct {
 	baseURL    string
@@ -92,7 +127,7 @@ func (c *Client) QueryWithTimeRange(ctx context.Context, query string, timeRange
 			return nil, fmt.Errorf("failed to parse end time: %w", err)
 		}
 
-		step, err := time.ParseDuration(timeRange.Step)
+		step, err := parseStepDuration(timeRange.Step)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse step duration: %w", err)
 		}

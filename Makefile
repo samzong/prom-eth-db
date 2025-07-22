@@ -1,6 +1,6 @@
 # Prometheus to MySQL ETL - Makefile
 
-# 项目信息
+# 项目配置
 PROJECT_NAME := prom-etl-db
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -10,113 +10,65 @@ GO_VERSION := $(shell go version | awk '{print $$3}')
 BINARY_NAME := prom-etl-db
 MAIN_PATH := ./cmd/server
 BUILD_DIR := ./build
-DOCKER_IMAGE := $(PROJECT_NAME):$(VERSION)
-DOCKER_COMPOSE_FILE := docker-compose.yaml
+DOCKER_REGISTRY := release.daocloud.io/ndx-product
+DOCKER_IMAGE := $(DOCKER_REGISTRY)/prom-etl-db
+DOCKER_TAG ?= $(shell echo $${DOCKER_TAG:-v0.1.2})
 
 # Go 构建标志
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME) -X main.goVersion=$(GO_VERSION)"
-GO_FLAGS := -v
 
 # 颜色输出
-RED := \033[0;31m
-GREEN := \033[0;32m
-YELLOW := \033[0;33m
 BLUE := \033[0;34m
-NC := \033[0m # No Color
+GREEN := \033[0;32m
+RED := \033[0;31m
+NC := \033[0m
 
 .PHONY: help
 help: ## 显示帮助信息
 	@echo "$(BLUE)$(PROJECT_NAME) - 开发工具$(NC)"
 	@echo ""
-	@echo "$(YELLOW)使用方法:$(NC)"
-	@echo "  make <target>"
-	@echo ""
-	@echo "$(YELLOW)可用目标:$(NC)"
-	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  $(GREEN)%-15s$(NC) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-# =============================================================================
-# 开发环境设置
-# =============================================================================
-
+# 开发环境
 .PHONY: setup
 setup: ## 设置开发环境
-	@echo "$(BLUE)设置开发环境...$(NC)"
-	@go mod download
-	@go mod tidy
+	@go mod download && go mod tidy
 	@if [ ! -f .env ]; then cp env.example .env; echo "$(GREEN)已创建 .env 文件$(NC)"; fi
-	@mkdir -p $(BUILD_DIR)
-	@mkdir -p logs
-	@echo "$(GREEN)开发环境设置完成$(NC)"
-
-.PHONY: deps
-deps: ## 安装/更新依赖
-	@echo "$(BLUE)安装依赖...$(NC)"
-	@go mod download
-	@go mod tidy
-	@go mod verify
-	@echo "$(GREEN)依赖安装完成$(NC)"
+	@mkdir -p $(BUILD_DIR) logs
 
 .PHONY: clean
 clean: ## 清理构建文件
-	@echo "$(BLUE)清理构建文件...$(NC)"
-	@rm -rf $(BUILD_DIR)
-	@rm -rf logs/*
+	@rm -rf $(BUILD_DIR) logs/*
 	@go clean -cache
-	@echo "$(GREEN)清理完成$(NC)"
 
-# =============================================================================
-# 构建
-# =============================================================================
-
+# 构建和运行
 .PHONY: build
 build: ## 构建二进制文件
-	@echo "$(BLUE)构建二进制文件...$(NC)"
 	@mkdir -p $(BUILD_DIR)
-	@go build $(LDFLAGS) $(GO_FLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
+	@go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
 	@echo "$(GREEN)构建完成: $(BUILD_DIR)/$(BINARY_NAME)$(NC)"
 
-# =============================================================================
-# 运行
-# =============================================================================
-
-.PHONY: run
-run: ## 运行应用程序
-	@echo "$(BLUE)运行应用程序...$(NC)"
+.PHONY: debug
+debug: ## 调试运行应用程序
 	@if [ ! -f .env ]; then echo "$(RED)错误: .env 文件不存在，请先运行 make setup$(NC)"; exit 1; fi
-	@go run $(MAIN_PATH)
+	@export $$(cat .env | grep -v '^#' | xargs) && go run $(MAIN_PATH)
 
-.PHONY: run-build
-run-build: build ## 构建并运行二进制文件
-	@echo "$(BLUE)运行构建的二进制文件...$(NC)"
-	@$(BUILD_DIR)/$(BINARY_NAME)
-
-# =============================================================================
-# Docker 操作
-# =============================================================================
-
+# Docker
 .PHONY: docker-build
-docker-build: ## 构建 Docker 镜像
-	@echo "$(BLUE)构建 Docker 镜像...$(NC)"
-	@docker build -t $(DOCKER_IMAGE) .
-	@echo "$(GREEN)Docker 镜像构建完成: $(DOCKER_IMAGE)$(NC)"
+docker-build: ## 构建 Docker 镜像 (Linux x86_64)
+	@docker build --platform linux/amd64 \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg BUILD_TIME=$(BUILD_TIME) \
+		--build-arg GO_VERSION=$(GO_VERSION) \
+		-t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	@echo "$(GREEN)Docker 镜像: $(DOCKER_IMAGE):$(DOCKER_TAG)$(NC)"
 
-.PHONY: docker-run
-docker-run: ## 运行 Docker 容器
-	@echo "$(BLUE)运行 Docker 容器...$(NC)"
-	@docker run --rm -it \
-		-p 8080:8080 \
-		-p 9090:9090 \
-		--env-file .env \
-		$(DOCKER_IMAGE)
+.PHONY: docker-push
+docker-push: ## 推送 Docker 镜像
+	@docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
 
-# =============================================================================
-# 实用工具
-# =============================================================================
-
-.PHONY: env
-env: ## 显示环境变量
-	@echo "$(BLUE)环境变量:$(NC)"
-	@env | grep -E "^(PROMETHEUS|MYSQL|LOG|HTTP|WORKER)" | sort
+.PHONY: docker-build-push
+docker-build-push: docker-build docker-push ## 构建并推送 Docker 镜像
 
 # 默认目标
 .DEFAULT_GOAL := help

@@ -88,37 +88,94 @@ func (e *Executor) ExecuteQuery(ctx context.Context, queryConfig *models.QueryCo
 		return fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	// Parse vector result
-	vectorResult, err := response.ParseVectorResult()
-	if err != nil {
+	// Parse result based on result type
+	var metricRecords []*models.MetricRecord
+	
+	switch response.Data.ResultType {
+	case "vector":
+		// Parse vector result (instant queries)
+		vectorResult, err := response.ParseVectorResult()
+		if err != nil {
+			// Record failure
+			execution.Status = "failed"
+			endTime := time.Now()
+			execution.EndTime = &endTime
+			duration := endTime.Sub(startTime).Milliseconds()
+			execution.DurationMs = &duration
+			errorMsg := err.Error()
+			execution.ErrorMessage = &errorMsg
+
+			logger.WithError(queryLogger, err).Error("Failed to parse vector result")
+
+			// Store execution record
+			if dbErr := e.db.InsertQueryExecution(execution); dbErr != nil {
+				logger.WithError(queryLogger, dbErr).Error("Failed to store execution record")
+			}
+
+			return fmt.Errorf("failed to parse vector result: %w", err)
+		}
+
+		// Convert vector samples to metric records
+		for _, sample := range vectorResult {
+			record, err := e.convertSampleToRecord(&sample, queryConfig.ID, queryConfig.TimeRange)
+			if err != nil {
+				logger.WithError(queryLogger, err).Warn("Failed to convert sample to record, skipping")
+				continue
+			}
+			metricRecords = append(metricRecords, record)
+		}
+
+	case "matrix":
+		// Parse matrix result (range queries)
+		matrixResult, err := response.ParseMatrixResult()
+		if err != nil {
+			// Record failure
+			execution.Status = "failed"
+			endTime := time.Now()
+			execution.EndTime = &endTime
+			duration := endTime.Sub(startTime).Milliseconds()
+			execution.DurationMs = &duration
+			errorMsg := err.Error()
+			execution.ErrorMessage = &errorMsg
+
+			logger.WithError(queryLogger, err).Error("Failed to parse matrix result")
+
+			// Store execution record
+			if dbErr := e.db.InsertQueryExecution(execution); dbErr != nil {
+				logger.WithError(queryLogger, dbErr).Error("Failed to store execution record")
+			}
+
+			return fmt.Errorf("failed to parse matrix result: %w", err)
+		}
+
+		// Convert matrix samples to metric records
+		for _, matrixSample := range matrixResult {
+			records, err := e.convertMatrixSampleToRecords(&matrixSample, queryConfig.ID, queryConfig.TimeRange)
+			if err != nil {
+				logger.WithError(queryLogger, err).Warn("Failed to convert matrix sample to records, skipping")
+				continue
+			}
+			metricRecords = append(metricRecords, records...)
+		}
+
+	default:
 		// Record failure
 		execution.Status = "failed"
 		endTime := time.Now()
 		execution.EndTime = &endTime
 		duration := endTime.Sub(startTime).Milliseconds()
 		execution.DurationMs = &duration
-		errorMsg := err.Error()
+		errorMsg := fmt.Sprintf("unsupported result type: %s", response.Data.ResultType)
 		execution.ErrorMessage = &errorMsg
 
-		logger.WithError(queryLogger, err).Error("Failed to parse query result")
+		logger.WithError(queryLogger, fmt.Errorf(errorMsg)).Error("Unsupported result type")
 
 		// Store execution record
 		if dbErr := e.db.InsertQueryExecution(execution); dbErr != nil {
 			logger.WithError(queryLogger, dbErr).Error("Failed to store execution record")
 		}
 
-		return fmt.Errorf("failed to parse query result: %w", err)
-	}
-
-	// Convert to metric records
-	var metricRecords []*models.MetricRecord
-	for _, sample := range vectorResult {
-		record, err := e.convertSampleToRecord(&sample, queryConfig.ID, queryConfig.TimeRange)
-		if err != nil {
-			logger.WithError(queryLogger, err).Warn("Failed to convert sample to record, skipping")
-			continue
-		}
-		metricRecords = append(metricRecords, record)
+		return fmt.Errorf("unsupported result type: %s", response.Data.ResultType)
 	}
 
 	// Store metric records
@@ -218,6 +275,81 @@ func (e *Executor) convertSampleToRecord(sample *models.VectorSample, queryID st
 		ResultType:  resultType,
 		CollectedAt: time.Now(),
 	}, nil
+}
+
+// convertMatrixSampleToRecords converts a MatrixSample to multiple MetricRecords
+func (e *Executor) convertMatrixSampleToRecords(matrixSample *models.MatrixSample, queryID string, timeRange *models.TimeRangeConfig) ([]*models.MetricRecord, error) {
+	// Extract metric name
+	metricName := matrixSample.Metric["__name__"]
+	if metricName == "" {
+		metricName = queryID
+	}
+
+	// Clean labels (remove internal labels)
+	labels := make(map[string]interface{})
+	for k, v := range matrixSample.Metric {
+		if k != "__name__" {
+			labels[k] = v
+		}
+	}
+
+	var records []*models.MetricRecord
+
+	// Process each value in the matrix
+	for _, valueArray := range matrixSample.Values {
+		// Each valueArray should contain [timestamp, value]
+		if len(valueArray) != 2 {
+			e.logger.Warn("Invalid matrix value format, skipping",
+				"query_id", queryID,
+				"value_length", len(valueArray),
+			)
+			continue
+		}
+
+		timestamp, ok := valueArray[0].(float64)
+		if !ok {
+			e.logger.Warn("Invalid timestamp format in matrix, skipping",
+				"query_id", queryID,
+				"timestamp_type", fmt.Sprintf("%T", valueArray[0]),
+			)
+			continue
+		}
+
+		valueStr, ok := valueArray[1].(string)
+		if !ok {
+			e.logger.Warn("Invalid value format in matrix, skipping",
+				"query_id", queryID,
+				"value_type", fmt.Sprintf("%T", valueArray[1]),
+			)
+			continue
+		}
+
+		// Convert string value to float64
+		value, err := strconv.ParseFloat(valueStr, 64)
+		if err != nil {
+			e.logger.Warn("Failed to parse value in matrix, skipping",
+				"query_id", queryID,
+				"value", valueStr,
+				"error", err,
+			)
+			continue
+		}
+
+		// Create metric record
+		record := &models.MetricRecord{
+			QueryID:     queryID,
+			MetricName:  metricName,
+			Labels:      labels,
+			Value:       value,
+			Timestamp:   time.Unix(int64(timestamp), 0),
+			ResultType:  "range",
+			CollectedAt: time.Now(),
+		}
+
+		records = append(records, record)
+	}
+
+	return records, nil
 }
 
 // ExecuteQueryWithRetry executes a query with retry logic

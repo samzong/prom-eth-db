@@ -1,13 +1,20 @@
--- Prometheus to MySQL ETL 数据库迁移脚本
--- 创建表结构并插入GPU查询配置
+-- Prometheus to MySQL ETL 数据库初始化脚本
+-- 重新创建所有表结构并插入GPU查询配置（无历史数据保留）
 
--- 设置字符集
+-- 设置字符集和安全模式
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
+SET SQL_MODE = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION';
+
+-- 删除现有表（如果存在）
+DROP TABLE IF EXISTS `metrics_data`;
+DROP TABLE IF EXISTS `query_executions`;
+DROP TABLE IF EXISTS `query_configs`;
+DROP TABLE IF EXISTS `system_status`;
 
 -- ===== 1. 统一指标数据表 =====
 -- 存储所有 Prometheus 查询结果的统一表
-CREATE TABLE IF NOT EXISTS `metrics_data` (
+CREATE TABLE `metrics_data` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `query_id` varchar(100) NOT NULL COMMENT '查询ID',
   `metric_name` varchar(255) NOT NULL COMMENT '指标名称',
@@ -27,7 +34,7 @@ COMMENT='Prometheus 指标数据统一存储表';
 
 -- ===== 2. 查询执行记录表 =====
 -- 记录每次查询的执行状态和结果
-CREATE TABLE IF NOT EXISTS `query_executions` (
+CREATE TABLE `query_executions` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `query_id` varchar(100) NOT NULL COMMENT '查询ID',
   `query_name` varchar(255) NOT NULL COMMENT '查询名称',
@@ -48,7 +55,7 @@ COMMENT='查询执行记录表';
 
 -- ===== 3. 查询配置表 =====
 -- 存储查询配置信息
-CREATE TABLE IF NOT EXISTS `query_configs` (
+CREATE TABLE `query_configs` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `query_id` varchar(100) NOT NULL UNIQUE COMMENT '查询ID',
   `name` varchar(255) NOT NULL COMMENT '查询名称',
@@ -79,7 +86,7 @@ COMMENT='查询配置表';
 
 -- ===== 4. 系统状态表 =====
 -- 记录系统运行状态和健康信息
-CREATE TABLE IF NOT EXISTS `system_status` (
+CREATE TABLE `system_status` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `component` varchar(100) NOT NULL COMMENT '组件名称',
   `status` enum('healthy','unhealthy','warning') NOT NULL COMMENT '状态',
@@ -94,11 +101,50 @@ CREATE TABLE IF NOT EXISTS `system_status` (
 COMMENT='系统状态表';
 
 -- ===== 5. 插入GPU利用率查询配置 =====
+-- 插入完整的GPU查询配置，包含正确的时间范围设置
 INSERT INTO `query_configs` (
-  `query_id`, `name`, `description`, `query`, `schedule`, `timeout`, `table_name`, `tags`, `enabled`, `retry_count`, `retry_interval`,
-  `time_range_type`, `time_range_time`
-) VALUES
-('gpu_utilization_daily', 'GPU每日利用率统计', '每天计算昨天的GPU利用率', 'count_over_time((count(kpanda_gpu_pod_utilization{cluster_name="sh-07-d-run"}) by (cluster_name,UUID,node))[1d:1d]) * 60 / 3600', '0 0 1 * * *', '120s', 'gpu_metrics', '["gpu", "utilization", "daily"]', 1, 3, '30s', 'instant', '-1d');
+  `query_id`, `name`, `description`, `query`, `schedule`, `timeout`, `table_name`, `tags`, 
+  `enabled`, `retry_count`, `retry_interval`, 
+  `time_range_type`, `time_range_start`, `time_range_end`, `time_range_step`
+) VALUES (
+  'gpu_utilization_daily', 
+  'GPU每日利用率统计', 
+  '每天凌晨1点统计昨天完整24小时的GPU利用率数据', 
+  'count_over_time((count(kpanda_gpu_pod_utilization{cluster_name="sh-07-d-run"}) by (UUID,node,cluster_name))[1d]) * 60 / 3600', 
+  '0 0 1 * * *',  -- 每天凌晨1点执行
+  '120s', 
+  'gpu_metrics', 
+  '["gpu", "utilization", "daily"]', 
+  1,  -- 启用
+  3,  -- 重试3次
+  '30s',  -- 重试间隔30秒
+  'instant',  -- 范围查询
+  'now-1d/d',  -- 昨天00:00:00 (Grafana格式)
+  'now/d',  -- 今天00:00:00 (Grafana格式)
+  '1d'  -- 1天步长
+);
+
+-- ===== 6. 插入系统状态初始记录 =====
+INSERT INTO `system_status` (`component`, `status`, `message`, `last_check`) VALUES
+('prometheus', 'healthy', 'Initial status', NOW(3)),
+('mysql', 'healthy', 'Initial status', NOW(3)),
+('scheduler', 'healthy', 'Initial status', NOW(3));
 
 -- 恢复外键检查
-SET FOREIGN_KEY_CHECKS = 1; 
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ===== 7. 验证和信息输出 =====
+-- 显示创建的表
+SHOW TABLES;
+
+-- 显示插入的查询配置
+SELECT 
+  query_id, name, schedule, enabled,
+  time_range_type, time_range_start, time_range_end, time_range_step
+FROM query_configs;
+
+-- 显示系统状态
+SELECT component, status, message FROM system_status;
+
+-- 输出完成信息
+SELECT '数据库初始化完成！' as message;

@@ -24,11 +24,11 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build \
+# Build the application for Linux x86_64
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags "-X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.goVersion=${GO_VERSION}" \
     -o prom-etl-db \
-    ./cmd/server/main.go
+    ./cmd/server
 
 # Runtime stage
 FROM alpine:latest

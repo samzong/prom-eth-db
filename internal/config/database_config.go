@@ -13,7 +13,8 @@ func LoadQueriesFromDB(db *sql.DB) ([]models.QueryConfig, error) {
 	query := `
 		SELECT 
 			query_id, name, description, query, schedule, timeout, 
-			table_name, tags, enabled, retry_count, retry_interval
+			table_name, tags, enabled, retry_count, retry_interval,
+			time_range_type, time_range_start, time_range_end, time_range_step
 		FROM query_configs 
 		WHERE enabled = 1 
 		ORDER BY created_at
@@ -30,6 +31,7 @@ func LoadQueriesFromDB(db *sql.DB) ([]models.QueryConfig, error) {
 		var config models.QueryConfig
 		var tagsJSON sql.NullString
 		var retryInterval string
+		var timeRangeType, timeRangeStart, timeRangeEnd, timeRangeStep sql.NullString
 
 		err := rows.Scan(
 			&config.ID,
@@ -43,6 +45,10 @@ func LoadQueriesFromDB(db *sql.DB) ([]models.QueryConfig, error) {
 			&config.Enabled,
 			&config.RetryCount,
 			&retryInterval,
+			&timeRangeType,
+			&timeRangeStart,
+			&timeRangeEnd,
+			&timeRangeStep,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan configuration row: %w", err)
@@ -59,6 +65,25 @@ func LoadQueriesFromDB(db *sql.DB) ([]models.QueryConfig, error) {
 
 		// Set retry interval as string
 		config.RetryInterval = retryInterval
+
+		// Parse time range configuration
+		if timeRangeType.Valid && timeRangeType.String != "" {
+			config.TimeRange = &models.TimeRangeConfig{
+				Type: timeRangeType.String,
+			}
+			
+			if timeRangeStart.Valid {
+				config.TimeRange.Start = timeRangeStart.String
+			}
+			
+			if timeRangeEnd.Valid {
+				config.TimeRange.End = timeRangeEnd.String
+			}
+			
+			if timeRangeStep.Valid {
+				config.TimeRange.Step = timeRangeStep.String
+			}
+		}
 
 		configs = append(configs, config)
 	}
@@ -80,8 +105,9 @@ func SaveQueryToDB(db *sql.DB, config *models.QueryConfig) error {
 	query := `
 		INSERT INTO query_configs (
 			query_id, name, description, query, schedule, timeout, 
-			table_name, tags, enabled, retry_count, retry_interval
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			table_name, tags, enabled, retry_count, retry_interval,
+			time_range_type, time_range_start, time_range_end, time_range_step
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE 
 			name = VALUES(name),
 			description = VALUES(description),
@@ -93,8 +119,21 @@ func SaveQueryToDB(db *sql.DB, config *models.QueryConfig) error {
 			enabled = VALUES(enabled),
 			retry_count = VALUES(retry_count),
 			retry_interval = VALUES(retry_interval),
+			time_range_type = VALUES(time_range_type),
+			time_range_start = VALUES(time_range_start),
+			time_range_end = VALUES(time_range_end),
+			time_range_step = VALUES(time_range_step),
 			updated_at = CURRENT_TIMESTAMP
 	`
+
+	// Prepare time range values
+	var timeRangeType, timeRangeStart, timeRangeEnd, timeRangeStep interface{}
+	if config.TimeRange != nil {
+		timeRangeType = config.TimeRange.Type
+		timeRangeStart = config.TimeRange.Start
+		timeRangeEnd = config.TimeRange.End
+		timeRangeStep = config.TimeRange.Step
+	}
 
 	_, err = db.Exec(query,
 		config.ID,
@@ -108,6 +147,10 @@ func SaveQueryToDB(db *sql.DB, config *models.QueryConfig) error {
 		config.Enabled,
 		config.RetryCount,
 		config.RetryInterval,
+		timeRangeType,
+		timeRangeStart,
+		timeRangeEnd,
+		timeRangeStep,
 	)
 
 	if err != nil {
