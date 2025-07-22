@@ -61,11 +61,18 @@ CREATE TABLE IF NOT EXISTS `query_configs` (
   `enabled` tinyint(1) DEFAULT 1 COMMENT '是否启用',
   `retry_count` int DEFAULT 3 COMMENT '重试次数',
   `retry_interval` varchar(20) DEFAULT '10s' COMMENT '重试间隔',
+  -- 新增时间范围配置字段
+  `time_range_type` enum('instant','range') DEFAULT 'instant' COMMENT '查询类型：instant=即时查询，range=范围查询',
+  `time_range_time` varchar(50) NULL COMMENT '即时查询的时间点（支持相对时间，如：now、-1d、-2h）',
+  `time_range_start` varchar(50) NULL COMMENT '范围查询的开始时间（支持相对时间）',
+  `time_range_end` varchar(50) NULL COMMENT '范围查询的结束时间（支持相对时间）',
+  `time_range_step` varchar(20) NULL COMMENT '范围查询的步长（如：1m、5m、1h）',
   `created_at` timestamp DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_query_id` (`query_id`),
   KEY `idx_enabled` (`enabled`),
+  KEY `idx_time_range_type` (`time_range_type`),
   KEY `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci 
 COMMENT='查询配置表';
@@ -87,8 +94,11 @@ CREATE TABLE IF NOT EXISTS `system_status` (
 COMMENT='系统状态表';
 
 -- ===== 5. 插入GPU利用率查询配置 =====
-INSERT INTO `query_configs` (`query_id`, `name`, `description`, `query`, `schedule`, `timeout`, `table_name`, `tags`, `enabled`, `retry_count`, `retry_interval`) VALUES
-('gpu_utilization_hourly', 'GPU利用率统计', '每小时统计GPU利用率 - 计算sh-07-d-run集群GPU Pod利用率', 'count_over_time((count(kpanda_gpu_pod_utilization{cluster_name="sh-07-d-run"}) by (UUID,node))[1d:1d] offset 1d) * 60 / 3600', '0 0 * * * *', '120s', 'gpu_metrics', '[\"gpu\", \"utilization\", \"hourly\"]', 1, 3, '30s');
+INSERT INTO `query_configs` (
+  `query_id`, `name`, `description`, `query`, `schedule`, `timeout`, `table_name`, `tags`, `enabled`, `retry_count`, `retry_interval`,
+  `time_range_type`, `time_range_time`
+) VALUES
+('gpu_utilization_daily', 'GPU每日利用率统计', '每天计算昨天的GPU利用率', 'count_over_time((count(kpanda_gpu_pod_utilization{cluster_name="sh-07-d-run"}) by (cluster_name,UUID,node))[1d:1d]) * 60 / 3600', '0 0 1 * * *', '120s', 'gpu_metrics', '["gpu", "utilization", "daily"]', 1, 3, '30s', 'instant', '-1d');
 
 -- 恢复外键检查
 SET FOREIGN_KEY_CHECKS = 1; 

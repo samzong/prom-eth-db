@@ -40,31 +40,52 @@ type MetricRecord struct {
 
 // QueryExecution represents a query execution record
 type QueryExecution struct {
-	ID           int64     `json:"id"`
-	QueryID      string    `json:"query_id"`
-	QueryName    string    `json:"query_name"`
-	Status       string    `json:"status"`
-	StartTime    time.Time `json:"start_time"`
+	ID           int64      `json:"id"`
+	QueryID      string     `json:"query_id"`
+	QueryName    string     `json:"query_name"`
+	Status       string     `json:"status"`
+	StartTime    time.Time  `json:"start_time"`
 	EndTime      *time.Time `json:"end_time,omitempty"`
-	DurationMs   *int64    `json:"duration_ms,omitempty"`
-	RecordsCount int       `json:"records_count"`
-	ErrorMessage *string   `json:"error_message,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	DurationMs   *int64     `json:"duration_ms,omitempty"`
+	RecordsCount int        `json:"records_count"`
+	ErrorMessage *string    `json:"error_message,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
+// TimeRangeConfig represents time range configuration for queries
+type TimeRangeConfig struct {
+	// Query type: "instant" or "range"
+	Type string `yaml:"type" json:"type"`
+
+	// Time point for instant queries (supports relative time)
+	Time string `yaml:"time,omitempty" json:"time,omitempty"`
+
+	// Start time for range queries (supports relative time)
+	Start string `yaml:"start,omitempty" json:"start,omitempty"`
+
+	// End time for range queries (supports relative time)
+	End string `yaml:"end,omitempty" json:"end,omitempty"`
+
+	// Step duration for range queries
+	Step string `yaml:"step,omitempty" json:"step,omitempty"`
 }
 
 // QueryConfig represents a query configuration
 type QueryConfig struct {
-	ID            string            `yaml:"id" json:"id"`
-	Name          string            `yaml:"name" json:"name"`
-	Description   string            `yaml:"description" json:"description"`
-	Query         string            `yaml:"query" json:"query"`
-	Schedule      string            `yaml:"schedule" json:"schedule"`
-	Timeout       string            `yaml:"timeout" json:"timeout"`
-	Table         string            `yaml:"table" json:"table"`
-	Tags          []string          `yaml:"tags" json:"tags"`
-	Enabled       bool              `yaml:"enabled" json:"enabled"`
-	RetryCount    int               `yaml:"retry_count" json:"retry_count"`
-	RetryInterval string            `yaml:"retry_interval" json:"retry_interval"`
+	ID            string   `yaml:"id" json:"id"`
+	Name          string   `yaml:"name" json:"name"`
+	Description   string   `yaml:"description" json:"description"`
+	Query         string   `yaml:"query" json:"query"`
+	Schedule      string   `yaml:"schedule" json:"schedule"`
+	Timeout       string   `yaml:"timeout" json:"timeout"`
+	Table         string   `yaml:"table" json:"table"`
+	Tags          []string `yaml:"tags" json:"tags"`
+	Enabled       bool     `yaml:"enabled" json:"enabled"`
+	RetryCount    int      `yaml:"retry_count" json:"retry_count"`
+	RetryInterval string   `yaml:"retry_interval" json:"retry_interval"`
+
+	// Time range configuration (optional)
+	TimeRange *TimeRangeConfig `yaml:"time_range,omitempty" json:"time_range,omitempty"`
 }
 
 // Config represents the application configuration
@@ -125,7 +146,7 @@ func (vs *VectorSample) ToMetricRecord(queryID string) (*MetricRecord, error) {
 	// Parse timestamp and value
 	timestamp := time.Unix(int64(vs.Value[0].(float64)), 0)
 	value := vs.Value[1].(string)
-	
+
 	// Convert string value to float64
 	var floatValue float64
 	if err := json.Unmarshal([]byte(value), &floatValue); err != nil {
@@ -149,4 +170,4 @@ func (vs *VectorSample) ToMetricRecord(queryID string) (*MetricRecord, error) {
 		ResultType:  "instant",
 		CollectedAt: time.Now(),
 	}, nil
-} 
+}

@@ -38,7 +38,7 @@ func main() {
 
 	// Create logger
 	log := logger.NewLogger(cfg.App.LogLevel)
-	log.Info("Starting prom-etl-db", 
+	log.Info("Starting prom-etl-db",
 		"version", version,
 		"build_time", buildTime,
 		"go_version", goVersion)
@@ -113,14 +113,14 @@ func runService(ctx context.Context, exec *executor.Executor, cfg *models.Config
 			queryCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
 
-			log.Info("Executing scheduled query", 
-				"query_id", q.ID, 
+			log.Info("Executing scheduled query",
+				"query_id", q.ID,
 				"name", q.Name,
 				"schedule", q.Schedule)
 
 			if err := exec.ExecuteQuery(queryCtx, &q); err != nil {
-				log.Error("Scheduled query execution failed", 
-					"query_id", q.ID, 
+				log.Error("Scheduled query execution failed",
+					"query_id", q.ID,
 					"error", err)
 			} else {
 				log.Info("Scheduled query executed successfully", "query_id", q.ID)
@@ -131,7 +131,7 @@ func runService(ctx context.Context, exec *executor.Executor, cfg *models.Config
 			return fmt.Errorf("failed to schedule query %s: %w", query.ID, err)
 		}
 
-		log.Info("Query scheduled successfully", 
+		log.Info("Query scheduled successfully",
 			"query_id", query.ID,
 			"name", query.Name,
 			"schedule", query.Schedule)
@@ -149,23 +149,23 @@ func runService(ctx context.Context, exec *executor.Executor, cfg *models.Config
 			continue
 		}
 
-		log.Info("Executing query", 
+		log.Info("Executing query",
 			"query_id", query.ID,
 			"name", query.Name,
 			"query", query.Query)
 
 		// Create a timeout context for each query
 		queryCtx, queryCancel := context.WithTimeout(context.Background(), 60*time.Second)
-		
+
 		if err := exec.ExecuteQuery(queryCtx, &query); err != nil {
-			log.Error("Query execution failed", 
+			log.Error("Query execution failed",
 				"query_id", query.ID,
 				"error", err)
 			log.Warn("Initial query execution failed", "error", err)
 		} else {
 			log.Info("Query executed successfully", "query_id", query.ID)
 		}
-		
+
 		queryCancel()
 	}
 
@@ -180,7 +180,7 @@ func runService(ctx context.Context, exec *executor.Executor, cfg *models.Config
 	// Graceful shutdown
 	log.Info("Shutting down cron scheduler...")
 	shutdownCtx := c.Stop()
-	
+
 	// Wait for running jobs to complete (with timeout)
 	select {
 	case <-shutdownCtx.Done():
@@ -192,8 +192,6 @@ func runService(ctx context.Context, exec *executor.Executor, cfg *models.Config
 	log.Info("Service shutdown completed")
 	return nil
 }
-
-
 
 // printConfig prints the configuration (masking sensitive data)
 func printConfig(cfg *models.Config) {
@@ -217,4 +215,4 @@ func maskPassword(password string) string {
 		return "****"
 	}
 	return password[:2] + "****"
-} 
+}

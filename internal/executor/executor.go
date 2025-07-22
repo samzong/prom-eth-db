@@ -33,7 +33,7 @@ func NewExecutor(promClient *prometheus.Client, db *database.DB, baseLogger *slo
 func (e *Executor) ExecuteQuery(ctx context.Context, queryConfig *models.QueryConfig) error {
 	startTime := time.Now()
 	queryLogger := logger.WithQueryID(e.logger, queryConfig.ID)
-	
+
 	// Create query execution record
 	execution := &models.QueryExecution{
 		QueryID:   queryConfig.ID,
@@ -48,8 +48,25 @@ func (e *Executor) ExecuteQuery(ctx context.Context, queryConfig *models.QueryCo
 		"name", queryConfig.Name,
 	)
 
-	// Execute Prometheus query
-	response, err := e.promClient.QueryInstant(ctx, queryConfig.Query)
+	// Execute Prometheus query based on time range configuration
+	var response *models.PrometheusResponse
+	var err error
+
+	if queryConfig.TimeRange != nil {
+		// Use time range configuration
+		response, err = e.promClient.QueryWithTimeRange(ctx, queryConfig.Query, queryConfig.TimeRange)
+		queryLogger.Info("Executing query with time range",
+			"type", queryConfig.TimeRange.Type,
+			"time", queryConfig.TimeRange.Time,
+			"start", queryConfig.TimeRange.Start,
+			"end", queryConfig.TimeRange.End,
+		)
+	} else {
+		// Use default instant query
+		response, err = e.promClient.QueryInstant(ctx, queryConfig.Query)
+		queryLogger.Info("Executing instant query with current time")
+	}
+
 	if err != nil {
 		// Record failure
 		execution.Status = "failed"
@@ -96,7 +113,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, queryConfig *models.QueryCo
 	// Convert to metric records
 	var metricRecords []*models.MetricRecord
 	for _, sample := range vectorResult {
-		record, err := e.convertSampleToRecord(&sample, queryConfig.ID)
+		record, err := e.convertSampleToRecord(&sample, queryConfig.ID, queryConfig.TimeRange)
 		if err != nil {
 			logger.WithError(queryLogger, err).Warn("Failed to convert sample to record, skipping")
 			continue
@@ -150,7 +167,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, queryConfig *models.QueryCo
 }
 
 // convertSampleToRecord converts a VectorSample to MetricRecord
-func (e *Executor) convertSampleToRecord(sample *models.VectorSample, queryID string) (*models.MetricRecord, error) {
+func (e *Executor) convertSampleToRecord(sample *models.VectorSample, queryID string, timeRange *models.TimeRangeConfig) (*models.MetricRecord, error) {
 	// Extract metric name
 	metricName := sample.Metric["__name__"]
 	if metricName == "" {
@@ -186,13 +203,19 @@ func (e *Executor) convertSampleToRecord(sample *models.VectorSample, queryID st
 		}
 	}
 
+	// Determine result type
+	resultType := "instant"
+	if timeRange != nil && timeRange.Type == "range" {
+		resultType = "range"
+	}
+
 	return &models.MetricRecord{
 		QueryID:     queryID,
 		MetricName:  metricName,
 		Labels:      labels,
 		Value:       value,
 		Timestamp:   time.Unix(int64(timestamp), 0),
-		ResultType:  "instant",
+		ResultType:  resultType,
 		CollectedAt: time.Now(),
 	}, nil
 }
@@ -200,7 +223,7 @@ func (e *Executor) convertSampleToRecord(sample *models.VectorSample, queryID st
 // ExecuteQueryWithRetry executes a query with retry logic
 func (e *Executor) ExecuteQueryWithRetry(ctx context.Context, queryConfig *models.QueryConfig) error {
 	var lastErr error
-	
+
 	for attempt := 0; attempt <= queryConfig.RetryCount; attempt++ {
 		if attempt > 0 {
 			// Parse retry interval
@@ -250,4 +273,4 @@ func (e *Executor) TestConnections(ctx context.Context) error {
 
 	e.logger.Info("All connections tested successfully")
 	return nil
-} 
+}

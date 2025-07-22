@@ -17,7 +17,7 @@ const (
 // NewLogger creates a new structured logger
 func NewLogger(level string) *slog.Logger {
 	var logLevel slog.Level
-	
+
 	switch strings.ToLower(level) {
 	case LevelDebug:
 		logLevel = slog.LevelDebug
@@ -33,7 +33,7 @@ func NewLogger(level string) *slog.Logger {
 
 	// Create handler with JSON format
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
+		Level:     logLevel,
 		AddSource: true,
 	})
 
@@ -63,4 +63,4 @@ func WithError(logger *slog.Logger, err error) *slog.Logger {
 // WithCount adds count field to logger
 func WithCount(logger *slog.Logger, count int) *slog.Logger {
 	return logger.With("count", count)
-} 
+}

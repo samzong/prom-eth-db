@@ -18,7 +18,7 @@ func LoadQueriesFromDB(db *sql.DB) ([]models.QueryConfig, error) {
 		WHERE enabled = 1 
 		ORDER BY created_at
 	`
-	
+
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query configurations: %w", err)
@@ -30,7 +30,7 @@ func LoadQueriesFromDB(db *sql.DB) ([]models.QueryConfig, error) {
 		var config models.QueryConfig
 		var tagsJSON sql.NullString
 		var retryInterval string
-		
+
 		err := rows.Scan(
 			&config.ID,
 			&config.Name,
@@ -120,7 +120,7 @@ func SaveQueryToDB(db *sql.DB, config *models.QueryConfig) error {
 // DeleteQueryFromDB deletes a query configuration from the database
 func DeleteQueryFromDB(db *sql.DB, queryID string) error {
 	query := `DELETE FROM query_configs WHERE query_id = ?`
-	
+
 	result, err := db.Exec(query, queryID)
 	if err != nil {
 		return fmt.Errorf("failed to delete configuration: %w", err)
@@ -141,7 +141,7 @@ func DeleteQueryFromDB(db *sql.DB, queryID string) error {
 // ToggleQueryEnabled enables or disables a query configuration
 func ToggleQueryEnabled(db *sql.DB, queryID string, enabled bool) error {
 	query := `UPDATE query_configs SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE query_id = ?`
-	
+
 	result, err := db.Exec(query, enabled, queryID)
 	if err != nil {
 		return fmt.Errorf("failed to update configuration: %w", err)
@@ -157,4 +157,4 @@ func ToggleQueryEnabled(db *sql.DB, queryID string, enabled bool) error {
 	}
 
 	return nil
-} 
+}

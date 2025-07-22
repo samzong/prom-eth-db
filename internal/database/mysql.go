@@ -261,7 +261,7 @@ func (db *DB) GetQueryExecutions(queryID string, limit int) ([]*models.QueryExec
 // GetMetricsCount returns the count of metrics for a query
 func (db *DB) GetMetricsCount(queryID string) (int64, error) {
 	query := `SELECT COUNT(*) FROM metrics_data WHERE query_id = ?`
-	
+
 	var count int64
 	err := db.conn.QueryRow(query, queryID).Scan(&count)
 	if err != nil {
@@ -274,7 +274,7 @@ func (db *DB) GetMetricsCount(queryID string) (int64, error) {
 // CleanupOldMetrics removes old metrics data
 func (db *DB) CleanupOldMetrics(olderThan time.Time) (int64, error) {
 	query := `DELETE FROM metrics_data WHERE collected_at < ?`
-	
+
 	result, err := db.conn.Exec(query, olderThan)
 	if err != nil {
 		return 0, fmt.Errorf("failed to cleanup old metrics: %w", err)
@@ -312,4 +312,4 @@ func (db *DB) GetDatabaseStats() (map[string]interface{}, error) {
 	}
 
 	return stats, nil
-} 
+}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/samzong/prom-etl-db/internal/models"
+	"github.com/samzong/prom-etl-db/internal/timeparser"
 )
 
 // Client represents a Prometheus client
@@ -41,9 +42,14 @@ func NewClient(baseURL, timeout string) (*Client, error) {
 
 // QueryInstant executes an instant query
 func (c *Client) QueryInstant(ctx context.Context, query string) (*models.PrometheusResponse, error) {
+	return c.QueryInstantWithTime(ctx, query, time.Now())
+}
+
+// QueryInstantWithTime executes an instant query at a specific time
+func (c *Client) QueryInstantWithTime(ctx context.Context, query string, queryTime time.Time) (*models.PrometheusResponse, error) {
 	// Build query URL
 	queryURL := fmt.Sprintf("%s/api/v1/query", c.baseURL)
-	
+
 	// Create URL with parameters
 	u, err := url.Parse(queryURL)
 	if err != nil {
@@ -52,11 +58,57 @@ func (c *Client) QueryInstant(ctx context.Context, query string) (*models.Promet
 
 	params := url.Values{}
 	params.Set("query", query)
-	params.Set("time", fmt.Sprintf("%d", time.Now().Unix()))
+	params.Set("time", fmt.Sprintf("%d", queryTime.Unix()))
 	u.RawQuery = params.Encode()
 
+	return c.executeQuery(ctx, u.String())
+}
+
+// QueryWithTimeRange executes a query with time range configuration
+func (c *Client) QueryWithTimeRange(ctx context.Context, query string, timeRange *models.TimeRangeConfig) (*models.PrometheusResponse, error) {
+	// Create timezone-aware time parser (using Asia/Shanghai)
+	parser := timeparser.NewRelativeTimeParser(time.Now())
+
+	switch timeRange.Type {
+	case "instant":
+		queryTime := time.Now()
+		if timeRange.Time != "" {
+			var err error
+			queryTime, err = parser.Parse(timeRange.Time)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse query time: %w", err)
+			}
+		}
+		return c.QueryInstantWithTime(ctx, query, queryTime)
+
+	case "range":
+		start, err := parser.Parse(timeRange.Start)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse start time: %w", err)
+		}
+
+		end, err := parser.Parse(timeRange.End)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse end time: %w", err)
+		}
+
+		step, err := time.ParseDuration(timeRange.Step)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse step duration: %w", err)
+		}
+
+		return c.QueryRange(ctx, query, start, end, step)
+
+	default:
+		// Default to instant query with current time
+		return c.QueryInstant(ctx, query)
+	}
+}
+
+// executeQuery executes HTTP request and parses response
+func (c *Client) executeQuery(ctx context.Context, url string) (*models.PrometheusResponse, error) {
 	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -102,7 +154,7 @@ func (c *Client) QueryInstant(ctx context.Context, query string) (*models.Promet
 func (c *Client) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) (*models.PrometheusResponse, error) {
 	// Build query URL
 	queryURL := fmt.Sprintf("%s/api/v1/query_range", c.baseURL)
-	
+
 	// Create URL with parameters
 	u, err := url.Parse(queryURL)
 	if err != nil {
@@ -173,7 +225,7 @@ func (c *Client) TestConnection(ctx context.Context) error {
 func (c *Client) GetMetrics(ctx context.Context) ([]string, error) {
 	// Build query URL
 	queryURL := fmt.Sprintf("%s/api/v1/label/__name__/values", c.baseURL)
-	
+
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
 	if err != nil {
@@ -208,7 +260,7 @@ func (c *Client) GetMetrics(ctx context.Context) ([]string, error) {
 		Status string   `json:"status"`
 		Data   []string `json:"data"`
 	}
-	
+
 	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
 	}
@@ -225,4 +277,4 @@ func (c *Client) GetMetrics(ctx context.Context) ([]string, error) {
 func (c *Client) Close() error {
 	// HTTP client doesn't need explicit closing
 	return nil
-} 
+}

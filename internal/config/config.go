@@ -187,4 +187,4 @@ func PrintConfig(config *models.Config) {
 	fmt.Printf("Worker Pool: %d\n", config.App.WorkerPool)
 	fmt.Printf("Queries Count: %d\n", len(config.Queries))
 	fmt.Printf("=====================\n")
-} 
+}
