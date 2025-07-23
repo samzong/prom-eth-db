@@ -1,213 +1,197 @@
 # Prometheus to MySQL ETL
 
-一个用 Golang 开发的 Prometheus 数据 ETL 工具，将 Prometheus 指标数据定时采集并存储到 MySQL 数据库中。
+A Go-based ETL tool that collects Prometheus metrics and stores them in MySQL database with scheduled execution.
 
-## 功能特性
+## Features
 
-- **定时采集**: 支持 Cron 表达式配置的定时任务
-- **多查询支持**: 同时执行多个 PromQL 查询
-- **统一存储**: 将不同格式的查询结果统一存储到 MySQL
-- **灵活配置**: 支持 YAML 配置文件和环境变量
-- **监控集成**: 内置健康检查和指标暴露
-- **重试机制**: 支持查询失败重试和错误恢复
-- **容器化**: 完整的 Docker 部署支持
+- Scheduled metric collection using cron expressions
+- Multiple PromQL query support with instant and range queries
+- Unified storage in MySQL with JSON labels
+- Database-driven query configuration
+- Retry mechanism with configurable intervals
+- Relative time parsing for flexible time ranges
+- Transaction-based batch inserts
 
-## 快速开始
+## Quick Start
 
-### 1. 环境准备
-
-确保您的环境中已安装：
+### Prerequisites
 
 - Go 1.21+
 - MySQL 8.0+
-- Docker & Docker Compose (可选)
+- Docker & Docker Compose (optional)
 
-### 2. 配置文件
+### Configuration
 
-复制环境变量模板：
+Copy environment template:
 
 ```bash
 cp env.example .env
 ```
 
-编辑 `.env` 文件，配置您的 Prometheus 和 MySQL 连接信息：
+Configure environment variables:
 
 ```bash
-# Prometheus 配置
-PROMETHEUS_URL=http://10.20.100.200:30588/select/0/prometheus
+# Prometheus Configuration
+PROMETHEUS_URL=http://localhost:9090
 PROMETHEUS_TIMEOUT=30s
 
-# MySQL 配置
+# MySQL Configuration
 MYSQL_HOST=localhost
 MYSQL_PORT=3306
 MYSQL_DATABASE=prometheus_data
 MYSQL_USERNAME=root
 MYSQL_PASSWORD=password
+
+# Application Configuration
+LOG_LEVEL=info
+WORKER_POOL_SIZE=10
 ```
 
-### 3. 数据库初始化
+### Database Setup
 
-执行数据库迁移脚本：
+Initialize database schema:
 
 ```bash
 mysql -u root -p prometheus_data < scripts/migrate.sql
 ```
 
-### 4. 运行方式
+### Running
 
-#### 方式一：Docker Compose (推荐)
+#### Docker Compose
 
 ```bash
-# 启动所有服务 (包括 MySQL 和 Adminer)
-docker-compose -f configs/docker-compose.yaml up -d
-
-# 查看日志
-docker-compose -f configs/docker-compose.yaml logs -f prom-etl-db
+docker-compose up -d
 ```
 
-#### 方式二：本地运行
+#### Local Development
 
 ```bash
-# 安装依赖
 go mod download
-
-# 编译运行
 go run cmd/server/main.go
 ```
 
-### 5. 验证运行
+## Configuration
 
-- **健康检查**: http://localhost:8080/health
-- **指标端点**: http://localhost:9090/metrics
+### Environment Variables
 
-## 配置说明
-
-### 环境变量
-
-| 变量名               | 说明                  | 默认值            |
+| Variable             | Description           | Default           |
 | -------------------- | --------------------- | ----------------- |
-| `PROMETHEUS_URL`     | Prometheus 服务器地址 | -                 |
-| `PROMETHEUS_TIMEOUT` | 查询超时时间          | `30s`             |
-| `MYSQL_HOST`         | MySQL 主机地址        | `localhost`       |
-| `MYSQL_PORT`         | MySQL 端口            | `3306`            |
-| `MYSQL_DATABASE`     | 数据库名              | `prometheus_data` |
-| `LOG_LEVEL`          | 日志级别              | `info`            |
-| `HTTP_PORT`          | 健康检查端口          | `8080`            |
-| `WORKER_POOL_SIZE`   | 工作池大小            | `10`              |
+| `PROMETHEUS_URL`     | Prometheus server URL | -                 |
+| `PROMETHEUS_TIMEOUT` | Query timeout         | `30s`             |
+| `MYSQL_HOST`         | MySQL host            | `localhost`       |
+| `MYSQL_PORT`         | MySQL port            | `3306`            |
+| `MYSQL_DATABASE`     | Database name         | `prometheus_data` |
+| `MYSQL_USERNAME`     | Database username     | `root`            |
+| `MYSQL_PASSWORD`     | Database password     | -                 |
+| `LOG_LEVEL`          | Log level             | `info`            |
+| `WORKER_POOL_SIZE`   | Worker pool size      | `10`              |
 
-## 数据结构
+### Query Configuration
 
-### 主要数据表
+Queries are stored in the `query_configs` table with the following structure:
 
-#### metrics_data - 指标数据表
+- **query_id**: Unique identifier
+- **name**: Human-readable name
+- **query**: PromQL expression
+- **schedule**: Cron expression (with seconds)
+- **time_range_type**: `instant` or `range`
+- **time_range_start/end**: Relative time expressions
+- **enabled**: Boolean flag
+- **retry_count**: Number of retries on failure
+
+## Database Schema
+
+### metrics_data
+
+Stores all metric values with JSON labels:
 
 ```sql
-CREATE TABLE `metrics_data` (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `query_id` varchar(100) NOT NULL COMMENT '查询ID',
-  `metric_name` varchar(255) NOT NULL COMMENT '指标名称',
-  `labels` json NOT NULL COMMENT '标签信息（JSON格式）',
-  `value` double NOT NULL COMMENT '指标值',
-  `timestamp` timestamp(3) NOT NULL COMMENT '指标时间戳',
-  `result_type` enum('instant','range','scalar') NOT NULL COMMENT '结果类型',
-  `collected_at` timestamp DEFAULT CURRENT_TIMESTAMP COMMENT '采集时间',
-  PRIMARY KEY (`id`),
-  KEY `idx_query_id_timestamp` (`query_id`, `timestamp`)
+CREATE TABLE metrics_data (
+  id bigint AUTO_INCREMENT PRIMARY KEY,
+  query_id varchar(100) NOT NULL,
+  metric_name varchar(255) NOT NULL,
+  labels json NOT NULL,
+  value double NOT NULL,
+  timestamp timestamp(3) NOT NULL,
+  result_type enum('instant','range','scalar') NOT NULL,
+  collected_at timestamp DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_query_id_timestamp (query_id, timestamp)
 );
 ```
 
-#### query_executions - 执行记录表
+### query_executions
+
+Tracks execution history and performance:
 
 ```sql
-CREATE TABLE `query_executions` (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `query_id` varchar(100) NOT NULL COMMENT '查询ID',
-  `status` enum('running','success','failed','timeout') NOT NULL COMMENT '执行状态',
-  `start_time` timestamp(3) NOT NULL COMMENT '开始时间',
-  `end_time` timestamp(3) NULL COMMENT '结束时间',
-  `duration_ms` int NULL COMMENT '执行时长(毫秒)',
-  `records_count` int DEFAULT 0 COMMENT '记录数量',
-  `error_message` text NULL COMMENT '错误信息',
-  PRIMARY KEY (`id`)
+CREATE TABLE query_executions (
+  id bigint AUTO_INCREMENT PRIMARY KEY,
+  query_id varchar(100) NOT NULL,
+  status enum('running','success','failed','timeout') NOT NULL,
+  start_time timestamp(3) NOT NULL,
+  end_time timestamp(3) NULL,
+  duration_ms int NULL,
+  records_count int DEFAULT 0,
+  error_message text NULL
 );
 ```
 
-### 查询数据示例
-
-```sql
--- 查询 CPU 使用率数据
-SELECT
-    query_id,
-    metric_name,
-    JSON_EXTRACT(labels, '$.instance') as instance,
-    value,
-    timestamp
-FROM metrics_data
-WHERE query_id = 'cpu_usage'
-  AND timestamp >= '2024-01-15 10:00:00'
-ORDER BY timestamp DESC;
-
--- 查询特定实例的所有指标
-SELECT
-    query_id,
-    metric_name,
-    value,
-    timestamp
-FROM metrics_data
-WHERE JSON_EXTRACT(labels, '$.instance') = 'node1'
-  AND timestamp >= '2024-01-15 10:00:00'
-ORDER BY timestamp DESC;
-```
-
-## API 接口
-
-### 健康检查
-
-- `GET /health` - 基本健康检查
-- `GET /health/ready` - 就绪状态检查
-- `GET /health/live` - 存活状态检查
-
-### 指标端点
-
-- `GET /metrics` - Prometheus 格式的指标数据
-
-## 开发指南
-
-### 项目结构
+## Project Structure
 
 ```
 prom-etl-db/
-├── cmd/server/main.go          # 程序入口
+├── cmd/server/main.go              # Application entry point
 ├── internal/
-│   ├── config/config.go        # 配置管理
-│   ├── prometheus/client.go    # Prometheus 客户端
-│   ├── database/mysql.go       # MySQL 连接管理
-│   ├── scheduler/scheduler.go  # 定时任务调度器
-│   └── models/models.go        # 数据模型
-├── configs/
-│   ├── queries.yaml           # 查询配置
-│   └── docker-compose.yaml    # Docker 编排
-├── scripts/migrate.sql        # 数据库迁移
-└── README.md                  # 项目说明
+│   ├── config/                     # Configuration management
+│   ├── database/                   # MySQL operations
+│   ├── executor/                   # Query execution logic
+│   ├── logger/                     # Structured logging
+│   ├── models/                     # Data models
+│   ├── prometheus/                 # Prometheus client
+│   └── timeparser/                 # Relative time parsing
+├── scripts/migrate.sql             # Database schema
+└── docker-compose.yaml             # Container orchestration
 ```
 
-### 构建和测试
+## Time Range Support
+
+The tool supports flexible time range configurations:
+
+### Instant Queries
+
+```yaml
+time_range_type: instant
+time_range_time: "now-1h" # 1 hour ago
+```
+
+### Range Queries
+
+```yaml
+time_range_type: range
+time_range_start: "now-1d/d" # Yesterday 00:00:00
+time_range_end: "now/d" # Today 00:00:00
+time_range_step: "1h" # 1 hour intervals
+```
+
+## Building
 
 ```bash
-# 运行测试
+# Run tests
 go test ./...
 
-# 构建二进制文件
+# Build binary
 go build -o prom-etl-db cmd/server/main.go
 
-# 构建 Docker 镜像
+# Build Docker image
 docker build -t prom-etl-db .
 ```
 
-## 许可证
+## Dependencies
+
+- `github.com/go-sql-driver/mysql` - MySQL driver
+- `github.com/robfig/cron/v3` - Cron scheduler
+- `github.com/spf13/viper` - Configuration management
+
+## License
 
 [MIT](LICENSE)
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！

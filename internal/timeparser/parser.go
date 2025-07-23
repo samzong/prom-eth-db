@@ -52,7 +52,7 @@ func (p *RelativeTimeParser) Parse(timeExpr string) (time.Time, error) {
 // parseGrafanaTime 解析Grafana风格时间表达式
 // 支持格式：
 // - now-1d/d (昨天开始)
-// - now/d (今天开始)  
+// - now/d (今天开始)
 // - now-1h (1小时前)
 // - now-30m (30分钟前)
 func (p *RelativeTimeParser) parseGrafanaTime(expr string) (time.Time, error) {
@@ -62,13 +62,13 @@ func (p *RelativeTimeParser) parseGrafanaTime(expr string) (time.Time, error) {
 	if strings.HasSuffix(expr, "/d") {
 		// 移除 /d 后缀
 		expr = strings.TrimSuffix(expr, "/d")
-		
+
 		// 解析基础时间
 		t, err := p.parseBasicGrafanaExpr(expr, baseTime)
 		if err != nil {
 			return time.Time{}, err
 		}
-		
+
 		// 截断到当天开始 (00:00:00)
 		return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, p.location), nil
 	}
@@ -130,16 +130,16 @@ func (p *RelativeTimeParser) parseBasicGrafanaExpr(expr string, baseTime time.Ti
 // GetYesterdayRange 获取昨天的时间范围 (00:00:00 到 23:59:59)
 func (p *RelativeTimeParser) GetYesterdayRange() (start, end time.Time) {
 	// 使用Grafana格式
-	start, _ = p.Parse("now-1d/d")  // 昨天00:00:00
-	end, _ = p.Parse("now/d")       // 今天00:00:00
-	
+	start, _ = p.Parse("now-1d/d") // 昨天00:00:00
+	end, _ = p.Parse("now/d")      // 今天00:00:00
+
 	return start, end
 }
 
-// GetTodayRange 获取今天的时间范围 (00:00:00 到 23:59:59) 
+// GetTodayRange 获取今天的时间范围 (00:00:00 到 23:59:59)
 func (p *RelativeTimeParser) GetTodayRange() (start, end time.Time) {
-	start, _ = p.Parse("now/d")        // 今天00:00:00
-	end, _ = p.Parse("now+1d/d")       // 明天00:00:00
-	
+	start, _ = p.Parse("now/d")  // 今天00:00:00
+	end, _ = p.Parse("now+1d/d") // 明天00:00:00
+
 	return start, end
 }

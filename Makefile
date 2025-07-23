@@ -36,6 +36,12 @@ setup: ## 设置开发环境
 	@if [ ! -f .env ]; then cp env.example .env; echo "$(GREEN)已创建 .env 文件$(NC)"; fi
 	@mkdir -p $(BUILD_DIR) logs
 
+.PHONY: fmt
+fmt: ## 格式化Go代码
+	@echo "$(BLUE)格式化Go代码...$(NC)"
+	@go fmt ./...
+	@echo "$(GREEN)代码格式化完成$(NC)"
+
 .PHONY: clean
 clean: ## 清理构建文件
 	@rm -rf $(BUILD_DIR) logs/*

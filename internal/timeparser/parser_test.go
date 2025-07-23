@@ -74,9 +74,9 @@ func TestGetYesterdayRange(t *testing.T) {
 	parser := NewRelativeTimeParser(baseTime)
 
 	start, end := parser.GetYesterdayRange()
-	
-	t.Logf("Yesterday range: %s to %s", 
-		start.Format("2006-01-02 15:04:05"), 
+
+	t.Logf("Yesterday range: %s to %s",
+		start.Format("2006-01-02 15:04:05"),
 		end.Format("2006-01-02 15:04:05"))
 
 	// 验证start是昨天的00:00:00

@@ -71,15 +71,15 @@ func LoadQueriesFromDB(db *sql.DB) ([]models.QueryConfig, error) {
 			config.TimeRange = &models.TimeRangeConfig{
 				Type: timeRangeType.String,
 			}
-			
+
 			if timeRangeStart.Valid {
 				config.TimeRange.Start = timeRangeStart.String
 			}
-			
+
 			if timeRangeEnd.Valid {
 				config.TimeRange.End = timeRangeEnd.String
 			}
-			
+
 			if timeRangeStep.Valid {
 				config.TimeRange.Step = timeRangeStep.String
 			}

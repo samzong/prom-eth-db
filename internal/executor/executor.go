@@ -90,7 +90,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, queryConfig *models.QueryCo
 
 	// Parse result based on result type
 	var metricRecords []*models.MetricRecord
-	
+
 	switch response.Data.ResultType {
 	case "vector":
 		// Parse vector result (instant queries)
