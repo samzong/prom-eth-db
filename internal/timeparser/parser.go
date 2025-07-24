@@ -3,143 +3,177 @@ package timeparser
 import (
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
 
-// RelativeTimeParser Grafana风格的时间解析器
+// RelativeTimeParser parses relative time expressions
 type RelativeTimeParser struct {
-	baseTime time.Time
-	location *time.Location
+	now time.Time
 }
 
-// NewRelativeTimeParser 创建新的相对时间解析器
-func NewRelativeTimeParser(baseTime time.Time) *RelativeTimeParser {
-	// 默认使用 CST 时区 (中国标准时间)
-	location := time.FixedZone("CST", 8*3600) // UTC+8
-
-	return &RelativeTimeParser{
-		baseTime: baseTime,
-		location: location,
-	}
+// NewRelativeTimeParser creates a new time parser with the given reference time
+func NewRelativeTimeParser(now time.Time) *RelativeTimeParser {
+	return &RelativeTimeParser{now: now}
 }
 
-// SetLocation 设置时区
-func (p *RelativeTimeParser) SetLocation(location *time.Location) {
-	p.location = location
-}
-
-// Parse 解析Grafana风格的时间表达式
-func (p *RelativeTimeParser) Parse(timeExpr string) (time.Time, error) {
-	if timeExpr == "" {
-		return p.baseTime, nil
+// Parse parses a relative time expression and returns the absolute time
+func (p *RelativeTimeParser) Parse(expr string) (time.Time, error) {
+	if expr == "" {
+		return p.now, nil
 	}
 
-	// 转换为小写以便处理
-	expr := strings.TrimSpace(strings.ToLower(timeExpr))
+	expr = strings.TrimSpace(expr)
 
-	// 处理特殊关键词
-	switch expr {
-	case "now":
-		return p.baseTime.In(p.location), nil
-	}
-
-	// 处理Grafana格式的时间表达式 (如: now-1d/d, now/d, now-1h, etc.)
-	return p.parseGrafanaTime(expr)
-}
-
-// parseGrafanaTime 解析Grafana风格时间表达式
-// 支持格式：
-// - now-1d/d (昨天开始)
-// - now/d (今天开始)
-// - now-1h (1小时前)
-// - now-30m (30分钟前)
-func (p *RelativeTimeParser) parseGrafanaTime(expr string) (time.Time, error) {
-	baseTime := p.baseTime.In(p.location)
-
-	// 处理 /d 后缀 (日期截断到当天开始)
-	if strings.HasSuffix(expr, "/d") {
-		// 移除 /d 后缀
-		expr = strings.TrimSuffix(expr, "/d")
-
-		// 解析基础时间
-		t, err := p.parseBasicGrafanaExpr(expr, baseTime)
-		if err != nil {
-			return time.Time{}, err
-		}
-
-		// 截断到当天开始 (00:00:00)
-		return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, p.location), nil
-	}
-
-	// 处理普通的相对时间表达式
-	return p.parseBasicGrafanaExpr(expr, baseTime)
-}
-
-// parseBasicGrafanaExpr 解析基础的Grafana表达式
-func (p *RelativeTimeParser) parseBasicGrafanaExpr(expr string, baseTime time.Time) (time.Time, error) {
-	// 处理 "now" 关键字
+	// Handle "now"
 	if expr == "now" {
-		return baseTime, nil
+		return p.now, nil
 	}
 
-	// 匹配 now+1d, now-1d, now-2h, now+30m 等格式
-	re := regexp.MustCompile(`^now([+-])(\d+)([smhdwMy])$`)
+	// Handle "yesterday" expressions
+	if strings.HasPrefix(expr, "yesterday") {
+		return p.parseYesterday(expr)
+	}
+
+	// Handle "today" expressions
+	if strings.HasPrefix(expr, "today") {
+		return p.parseToday(expr)
+	}
+
+	// Handle relative time expressions like "-1d", "-2h", etc.
+	if strings.HasPrefix(expr, "-") || strings.HasPrefix(expr, "+") {
+		return p.parseRelative(expr)
+	}
+
+	return time.Time{}, fmt.Errorf("unsupported time expression: %s", expr)
+}
+
+// parseYesterday handles yesterday expressions
+func (p *RelativeTimeParser) parseYesterday(expr string) (time.Time, error) {
+	// Calculate yesterday's date
+	yesterday := p.now.AddDate(0, 0, -1)
+
+	// Extract time part if specified
+	timePart := strings.TrimPrefix(expr, "yesterday")
+
+	if timePart == "" {
+		// Default to yesterday 00:00:00
+		return time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 0, 0, 0, 0, p.now.Location()), nil
+	}
+
+	// Handle @time format: yesterday@00:00, yesterday@23:59:59
+	if strings.HasPrefix(timePart, "@") {
+		timeStr := strings.TrimPrefix(timePart, "@")
+		return p.parseTimeWithDate(yesterday, timeStr)
+	}
+
+	return time.Time{}, fmt.Errorf("invalid yesterday expression: %s", expr)
+}
+
+// parseToday handles today expressions
+func (p *RelativeTimeParser) parseToday(expr string) (time.Time, error) {
+	// Extract time part if specified
+	timePart := strings.TrimPrefix(expr, "today")
+
+	if timePart == "" {
+		// Default to today 00:00:00
+		return time.Date(p.now.Year(), p.now.Month(), p.now.Day(), 0, 0, 0, 0, p.now.Location()), nil
+	}
+
+	// Handle @time format: today@00:00, today@23:59:59
+	if strings.HasPrefix(timePart, "@") {
+		timeStr := strings.TrimPrefix(timePart, "@")
+		return p.parseTimeWithDate(p.now, timeStr)
+	}
+
+	return time.Time{}, fmt.Errorf("invalid today expression: %s", expr)
+}
+
+// parseTimeWithDate parses time string and applies it to a given date
+func (p *RelativeTimeParser) parseTimeWithDate(date time.Time, timeStr string) (time.Time, error) {
+	// Support formats: "00:00", "23:59:59", "12:30"
+	parts := strings.Split(timeStr, ":")
+	if len(parts) < 2 || len(parts) > 3 {
+		return time.Time{}, fmt.Errorf("invalid time format: %s", timeStr)
+	}
+
+	hour := 0
+	minute := 0
+	second := 0
+
+	if len(parts) >= 1 {
+		if h, err := parseInt(parts[0]); err == nil {
+			hour = h
+		} else {
+			return time.Time{}, fmt.Errorf("invalid hour: %s", parts[0])
+		}
+	}
+
+	if len(parts) >= 2 {
+		if m, err := parseInt(parts[1]); err == nil {
+			minute = m
+		} else {
+			return time.Time{}, fmt.Errorf("invalid minute: %s", parts[1])
+		}
+	}
+
+	if len(parts) >= 3 {
+		if s, err := parseInt(parts[2]); err == nil {
+			second = s
+		} else {
+			return time.Time{}, fmt.Errorf("invalid second: %s", parts[2])
+		}
+	}
+
+	return time.Date(date.Year(), date.Month(), date.Day(), hour, minute, second, 0, p.now.Location()), nil
+}
+
+// parseRelative handles relative time expressions
+func (p *RelativeTimeParser) parseRelative(expr string) (time.Time, error) {
+	// Parse expressions like "-1d", "+2h", "-30m", etc.
+	re := regexp.MustCompile(`^([+-])(\d+)([dhms])$`)
 	matches := re.FindStringSubmatch(expr)
 
 	if len(matches) != 4 {
-		return time.Time{}, fmt.Errorf("unsupported time expression: %s", expr)
+		return time.Time{}, fmt.Errorf("invalid relative time expression: %s", expr)
 	}
 
 	sign := matches[1]
-	valueStr := matches[2]
+	value := matches[2]
 	unit := matches[3]
 
-	value, err := strconv.Atoi(valueStr)
+	// Parse the numeric value
+	val, err := parseInt(value)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("invalid number in time expression: %s", valueStr)
+		return time.Time{}, fmt.Errorf("invalid number in expression: %s", value)
 	}
 
-	// 处理符号
-	if sign == "-" {
-		value = -value
-	}
-
-	// 根据单位计算时间
+	// Calculate the duration
+	var duration time.Duration
 	switch unit {
-	case "s": // 秒
-		return baseTime.Add(time.Duration(value) * time.Second), nil
-	case "m": // 分钟
-		return baseTime.Add(time.Duration(value) * time.Minute), nil
-	case "h": // 小时
-		return baseTime.Add(time.Duration(value) * time.Hour), nil
-	case "d": // 天
-		return baseTime.AddDate(0, 0, value), nil
-	case "w": // 周
-		return baseTime.AddDate(0, 0, value*7), nil
-	case "M": // 月
-		return baseTime.AddDate(0, value, 0), nil
-	case "y": // 年
-		return baseTime.AddDate(value, 0, 0), nil
+	case "d":
+		duration = time.Duration(val) * 24 * time.Hour
+	case "h":
+		duration = time.Duration(val) * time.Hour
+	case "m":
+		duration = time.Duration(val) * time.Minute
+	case "s":
+		duration = time.Duration(val) * time.Second
 	default:
 		return time.Time{}, fmt.Errorf("unsupported time unit: %s", unit)
 	}
+
+	// Apply the duration
+	if sign == "-" {
+		return p.now.Add(-duration), nil
+	} else {
+		return p.now.Add(duration), nil
+	}
 }
 
-// GetYesterdayRange 获取昨天的时间范围 (00:00:00 到 23:59:59)
-func (p *RelativeTimeParser) GetYesterdayRange() (start, end time.Time) {
-	// 使用Grafana格式
-	start, _ = p.Parse("now-1d/d") // 昨天00:00:00
-	end, _ = p.Parse("now/d")      // 今天00:00:00
-
-	return start, end
-}
-
-// GetTodayRange 获取今天的时间范围 (00:00:00 到 23:59:59)
-func (p *RelativeTimeParser) GetTodayRange() (start, end time.Time) {
-	start, _ = p.Parse("now/d")  // 今天00:00:00
-	end, _ = p.Parse("now+1d/d") // 明天00:00:00
-
-	return start, end
+// parseInt is a helper function to parse integers
+func parseInt(s string) (int, error) {
+	var result int
+	_, err := fmt.Sscanf(s, "%d", &result)
+	return result, err
 }

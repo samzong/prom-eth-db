@@ -81,17 +81,15 @@ type TimeRangeConfig struct {
 
 // QueryConfig represents a query configuration
 type QueryConfig struct {
-	ID            string   `yaml:"id" json:"id"`
-	Name          string   `yaml:"name" json:"name"`
-	Description   string   `yaml:"description" json:"description"`
-	Query         string   `yaml:"query" json:"query"`
-	Schedule      string   `yaml:"schedule" json:"schedule"`
-	Timeout       string   `yaml:"timeout" json:"timeout"`
-	Table         string   `yaml:"table" json:"table"`
-	Tags          []string `yaml:"tags" json:"tags"`
-	Enabled       bool     `yaml:"enabled" json:"enabled"`
-	RetryCount    int      `yaml:"retry_count" json:"retry_count"`
-	RetryInterval string   `yaml:"retry_interval" json:"retry_interval"`
+	ID            string `yaml:"id" json:"id"`
+	Name          string `yaml:"name" json:"name"`
+	Description   string `yaml:"description" json:"description"`
+	Query         string `yaml:"query" json:"query"`
+	Schedule      string `yaml:"schedule" json:"schedule"`
+	Timeout       string `yaml:"timeout" json:"timeout"`
+	Enabled       bool   `yaml:"enabled" json:"enabled"`
+	RetryCount    int    `yaml:"retry_count" json:"retry_count"`
+	RetryInterval string `yaml:"retry_interval" json:"retry_interval"`
 
 	// Time range configuration (optional)
 	TimeRange *TimeRangeConfig `yaml:"time_range,omitempty" json:"time_range,omitempty"`

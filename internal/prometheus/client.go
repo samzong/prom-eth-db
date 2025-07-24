@@ -2,76 +2,134 @@ package prometheus
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
+	"log/slog"
 	"time"
 
+	"github.com/jinzhu/now"
+	"github.com/prometheus/client_golang/api"
+	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
+	"github.com/prometheus/common/model"
 	"github.com/samzong/prom-etl-db/internal/models"
-	"github.com/samzong/prom-etl-db/internal/timeparser"
 )
 
-// parseStepDuration parses step duration with support for additional units like 'd' (days)
-func parseStepDuration(stepStr string) (time.Duration, error) {
-	// Try standard Go duration parsing first
-	if duration, err := time.ParseDuration(stepStr); err == nil {
-		return duration, nil
-	}
-
-	// Handle custom units like 'd' (days)
-	if len(stepStr) < 2 {
-		return 0, fmt.Errorf("invalid step duration format: %s", stepStr)
-	}
-
-	// Extract number and unit
-	unit := stepStr[len(stepStr)-1:]
-	numberStr := stepStr[:len(stepStr)-1]
-
-	// Parse the number part
-	var number float64
-	if _, err := fmt.Sscanf(numberStr, "%f", &number); err != nil {
-		return 0, fmt.Errorf("invalid number in step duration: %s", numberStr)
-	}
-
-	// Convert based on unit
-	switch unit {
-	case "d":
-		// 1 day = 24 hours
-		return time.Duration(number * 24 * float64(time.Hour)), nil
-	case "w":
-		// 1 week = 7 days = 168 hours
-		return time.Duration(number * 7 * 24 * float64(time.Hour)), nil
-	default:
-		return 0, fmt.Errorf("unsupported step duration unit: %s (supported: ns, us, ms, s, m, h, d, w)", unit)
-	}
-}
-
-// Client represents a Prometheus client
+// Client represents a Prometheus client using official library
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
-	timeout    time.Duration
+	client       v1.API
+	timeResolver TimeResolver
+	logger       *slog.Logger
 }
 
-// NewClient creates a new Prometheus client
+// TimeResolver defines interface for time expression resolution
+type TimeResolver interface {
+	ResolveTime(expr string) (time.Time, error)
+	ResolveRangeTime(startExpr, endExpr string) (start, end time.Time, err error)
+}
+
+// RelativeTimeResolver implements TimeResolver using jinzhu/now
+type RelativeTimeResolver struct {
+	baseTime time.Time
+}
+
+// NewRelativeTimeResolver creates a new time resolver
+func NewRelativeTimeResolver(baseTime time.Time) *RelativeTimeResolver {
+	return &RelativeTimeResolver{baseTime: baseTime}
+}
+
+// ResolveTime resolves time expressions to actual time
+func (r *RelativeTimeResolver) ResolveTime(expr string) (time.Time, error) {
+	// Set the base time for jinzhu/now
+	nowTime := now.New(r.baseTime)
+
+	switch expr {
+	case "now":
+		return r.baseTime, nil
+	case "today":
+		return nowTime.BeginningOfDay(), nil
+	case "today_end":
+		return nowTime.EndOfDay(), nil
+	case "yesterday":
+		return nowTime.BeginningOfDay().AddDate(0, 0, -1), nil
+	case "yesterday_end":
+		return nowTime.EndOfDay().AddDate(0, 0, -1), nil
+	case "last_week":
+		return nowTime.BeginningOfWeek().AddDate(0, 0, -7), nil
+	case "last_week_end":
+		return nowTime.EndOfWeek().AddDate(0, 0, -7), nil
+	case "last_month":
+		return nowTime.BeginningOfMonth().AddDate(0, -1, 0), nil
+	case "last_month_end":
+		return nowTime.EndOfMonth().AddDate(0, -1, 0), nil
+	case "last_quarter":
+		return nowTime.BeginningOfQuarter().AddDate(0, -3, 0), nil
+	case "last_year":
+		return nowTime.BeginningOfYear().AddDate(-1, 0, 0), nil
+	default:
+		// Try to parse as duration offset (e.g., "-1h", "-24h", "+2h")
+		if len(expr) > 1 && (expr[0] == '-' || expr[0] == '+') {
+			duration, err := time.ParseDuration(expr[1:])
+			if err != nil {
+				return time.Time{}, fmt.Errorf("invalid time expression: %s", expr)
+			}
+			if expr[0] == '-' {
+				return r.baseTime.Add(-duration), nil
+			}
+			return r.baseTime.Add(duration), nil
+		}
+		return time.Time{}, fmt.Errorf("unsupported time expression: %s", expr)
+	}
+}
+
+// ResolveRangeTime resolves start and end time expressions
+func (r *RelativeTimeResolver) ResolveRangeTime(startExpr, endExpr string) (start, end time.Time, err error) {
+	start, err = r.ResolveTime(startExpr)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("failed to resolve start time '%s': %w", startExpr, err)
+	}
+
+	end, err = r.ResolveTime(endExpr)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("failed to resolve end time '%s': %w", endExpr, err)
+	}
+
+	if start.After(end) {
+		return time.Time{}, time.Time{}, fmt.Errorf("start time (%s) is after end time (%s)", start.Format(time.RFC3339), end.Format(time.RFC3339))
+	}
+
+	return start, end, nil
+}
+
+// NewClient creates a new Prometheus client using official library
 func NewClient(baseURL, timeout string) (*Client, error) {
-	// Parse timeout
 	timeoutDuration, err := time.ParseDuration(timeout)
 	if err != nil {
 		return nil, fmt.Errorf("invalid timeout format: %w", err)
 	}
+	return NewClientWithLogger(baseURL, timeoutDuration, nil)
+}
 
-	// Create HTTP client with timeout
-	httpClient := &http.Client{
-		Timeout: timeoutDuration,
+// NewClientWithLogger creates a new Prometheus client with custom logger
+func NewClientWithLogger(baseURL string, timeout time.Duration, baseLogger *slog.Logger) (*Client, error) {
+	// Create Prometheus API client
+	client, err := api.NewClient(api.Config{
+		Address: baseURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create prometheus client: %w", err)
+	}
+
+	// Use provided logger or create a default one
+	var clientLogger *slog.Logger
+	if baseLogger != nil {
+		clientLogger = baseLogger.With("component", "prometheus-client")
+	} else {
+		clientLogger = slog.Default().With("component", "prometheus-client")
 	}
 
 	return &Client{
-		baseURL:    baseURL,
-		httpClient: httpClient,
-		timeout:    timeoutDuration,
+		client:       v1.NewAPI(client),
+		timeResolver: NewRelativeTimeResolver(time.Now()),
+		logger:       clientLogger,
 	}, nil
 }
 
@@ -82,173 +140,235 @@ func (c *Client) QueryInstant(ctx context.Context, query string) (*models.Promet
 
 // QueryInstantWithTime executes an instant query at a specific time
 func (c *Client) QueryInstantWithTime(ctx context.Context, query string, queryTime time.Time) (*models.PrometheusResponse, error) {
-	// Build query URL
-	queryURL := fmt.Sprintf("%s/api/v1/query", c.baseURL)
+	c.logger.Info("Executing instant query",
+		"query", query,
+		"time", queryTime.Format(time.RFC3339),
+		"time_unix", queryTime.Unix(),
+	)
 
-	// Create URL with parameters
-	u, err := url.Parse(queryURL)
+	result, warnings, err := c.client.Query(ctx, query, queryTime)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse query URL: %w", err)
+		c.logger.Error("Instant query failed",
+			"query", query,
+			"error", err,
+		)
+		return nil, fmt.Errorf("instant query failed: %w", err)
 	}
 
-	params := url.Values{}
-	params.Set("query", query)
-	params.Set("time", fmt.Sprintf("%d", queryTime.Unix()))
-	u.RawQuery = params.Encode()
+	if len(warnings) > 0 {
+		c.logger.Warn("Query returned warnings",
+			"query", query,
+			"warnings", warnings,
+		)
+	}
 
-	return c.executeQuery(ctx, u.String())
+	response := c.convertToPrometheusResponse(result)
+	c.logger.Info("Instant query completed successfully",
+		"query", query,
+		"result_type", response.Data.ResultType,
+	)
+
+	return response, nil
 }
 
-// QueryWithTimeRange executes a query with time range configuration
-func (c *Client) QueryWithTimeRange(ctx context.Context, query string, timeRange *models.TimeRangeConfig) (*models.PrometheusResponse, error) {
-	// Create timezone-aware time parser (using Asia/Shanghai)
-	parser := timeparser.NewRelativeTimeParser(time.Now())
+// QueryInstantWithConfig executes an instant query with time configuration
+func (c *Client) QueryInstantWithConfig(ctx context.Context, query string, timeConfig *models.TimeRangeConfig) (*models.PrometheusResponse, error) {
+	queryTime := time.Now()
 
-	switch timeRange.Type {
-	case "instant":
-		queryTime := time.Now()
-		if timeRange.Time != "" {
-			var err error
-			queryTime, err = parser.Parse(timeRange.Time)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse query time: %w", err)
-			}
-		}
-		return c.QueryInstantWithTime(ctx, query, queryTime)
-
-	case "range":
-		start, err := parser.Parse(timeRange.Start)
+	if timeConfig != nil && timeConfig.Time != "" {
+		var err error
+		queryTime, err = c.timeResolver.ResolveTime(timeConfig.Time)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse start time: %w", err)
+			c.logger.Error("Failed to resolve query time",
+				"time_expr", timeConfig.Time,
+				"error", err,
+			)
+			return nil, fmt.Errorf("failed to resolve query time: %w", err)
 		}
-
-		end, err := parser.Parse(timeRange.End)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse end time: %w", err)
-		}
-
-		step, err := parseStepDuration(timeRange.Step)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse step duration: %w", err)
-		}
-
-		return c.QueryRange(ctx, query, start, end, step)
-
-	default:
-		// Default to instant query with current time
-		return c.QueryInstant(ctx, query)
-	}
-}
-
-// executeQuery executes HTTP request and parses response
-func (c *Client) executeQuery(ctx context.Context, url string) (*models.PrometheusResponse, error) {
-	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		c.logger.Info("Resolved query time",
+			"time_expr", timeConfig.Time,
+			"resolved_time", queryTime.Format(time.RFC3339),
+		)
 	}
 
-	// Set headers
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "prom-etl-db/1.0")
-
-	// Execute request
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("prometheus API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	// Parse JSON response
-	var promResponse models.PrometheusResponse
-	if err := json.Unmarshal(body, &promResponse); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
-	}
-
-	// Check response status
-	if promResponse.Status != "success" {
-		return nil, fmt.Errorf("prometheus query failed with status: %s", promResponse.Status)
-	}
-
-	return &promResponse, nil
+	return c.QueryInstantWithTime(ctx, query, queryTime)
 }
 
 // QueryRange executes a range query
 func (c *Client) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) (*models.PrometheusResponse, error) {
-	// Build query URL
-	queryURL := fmt.Sprintf("%s/api/v1/query_range", c.baseURL)
+	c.logger.Info("Executing range query",
+		"query", query,
+		"start", start.Format(time.RFC3339),
+		"end", end.Format(time.RFC3339),
+		"step", step.String(),
+		"duration", end.Sub(start).String(),
+	)
 
-	// Create URL with parameters
-	u, err := url.Parse(queryURL)
+	r := v1.Range{
+		Start: start,
+		End:   end,
+		Step:  step,
+	}
+
+	result, warnings, err := c.client.QueryRange(ctx, query, r)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse query URL: %w", err)
+		c.logger.Error("Range query failed",
+			"query", query,
+			"error", err,
+		)
+		return nil, fmt.Errorf("range query failed: %w", err)
 	}
 
-	params := url.Values{}
-	params.Set("query", query)
-	params.Set("start", fmt.Sprintf("%d", start.Unix()))
-	params.Set("end", fmt.Sprintf("%d", end.Unix()))
-	params.Set("step", fmt.Sprintf("%ds", int(step.Seconds())))
-	u.RawQuery = params.Encode()
+	if len(warnings) > 0 {
+		c.logger.Warn("Query returned warnings",
+			"query", query,
+			"warnings", warnings,
+		)
+	}
 
-	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	response := c.convertToPrometheusResponse(result)
+	c.logger.Info("Range query completed successfully",
+		"query", query,
+		"result_type", response.Data.ResultType,
+	)
+
+	return response, nil
+}
+
+// QueryRangeWithConfig executes a range query with time configuration
+func (c *Client) QueryRangeWithConfig(ctx context.Context, query string, timeConfig *models.TimeRangeConfig) (*models.PrometheusResponse, error) {
+	if timeConfig == nil {
+		return nil, fmt.Errorf("time configuration is required for range query")
+	}
+
+	start, end, err := c.timeResolver.ResolveRangeTime(timeConfig.Start, timeConfig.End)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		c.logger.Error("Failed to resolve time range",
+			"start_expr", timeConfig.Start,
+			"end_expr", timeConfig.End,
+			"error", err,
+		)
+		return nil, fmt.Errorf("failed to resolve time range: %w", err)
 	}
 
-	// Set headers
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "prom-etl-db/1.0")
-
-	// Execute request
-	resp, err := c.httpClient.Do(req)
+	step, err := time.ParseDuration(timeConfig.Step)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("prometheus API returned status %d: %s", resp.StatusCode, string(body))
+		c.logger.Error("Failed to parse step duration",
+			"step", timeConfig.Step,
+			"error", err,
+		)
+		return nil, fmt.Errorf("failed to parse step duration: %w", err)
 	}
 
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+	c.logger.Info("Resolved time range configuration",
+		"start_expr", timeConfig.Start,
+		"end_expr", timeConfig.End,
+		"step_expr", timeConfig.Step,
+		"resolved_start", start.Format(time.RFC3339),
+		"resolved_end", end.Format(time.RFC3339),
+		"resolved_step", step.String(),
+	)
+
+	return c.QueryRange(ctx, query, start, end, step)
+}
+
+// QueryWithTimeRange executes a query with time range configuration (unified interface)
+func (c *Client) QueryWithTimeRange(ctx context.Context, query string, timeRange *models.TimeRangeConfig) (*models.PrometheusResponse, error) {
+	if timeRange == nil {
+		return c.QueryInstant(ctx, query)
 	}
 
-	// Parse JSON response
-	var promResponse models.PrometheusResponse
-	if err := json.Unmarshal(body, &promResponse); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
+	c.logger.Info("Processing time range configuration",
+		"type", timeRange.Type,
+		"time", timeRange.Time,
+		"start", timeRange.Start,
+		"end", timeRange.End,
+		"step", timeRange.Step,
+	)
+
+	switch timeRange.Type {
+	case "instant":
+		return c.QueryInstantWithConfig(ctx, query, timeRange)
+	case "range":
+		return c.QueryRangeWithConfig(ctx, query, timeRange)
+	default:
+		c.logger.Warn("Unknown time range type, defaulting to instant query",
+			"type", timeRange.Type,
+		)
+		return c.QueryInstant(ctx, query)
+	}
+}
+
+// convertToPrometheusResponse converts Prometheus API result to our response format
+func (c *Client) convertToPrometheusResponse(value model.Value) *models.PrometheusResponse {
+	response := &models.PrometheusResponse{
+		Status: "success",
+		Data: models.ResultData{
+			ResultType: value.Type().String(),
+		},
 	}
 
-	// Check response status
-	if promResponse.Status != "success" {
-		return nil, fmt.Errorf("prometheus query failed with status: %s", promResponse.Status)
+	switch v := value.(type) {
+	case model.Vector:
+		response.Data.Result = c.convertVector(v)
+	case model.Matrix:
+		response.Data.Result = c.convertMatrix(v)
+	case *model.Scalar:
+		response.Data.Result = c.convertScalar(v)
+	case *model.String:
+		response.Data.Result = c.convertString(v)
+	default:
+		c.logger.Warn("Unknown result type", "type", value.Type())
+		response.Data.Result = []interface{}{}
 	}
 
-	return &promResponse, nil
+	return response
+}
+
+// convertVector converts model.Vector to our format
+func (c *Client) convertVector(vector model.Vector) []interface{} {
+	result := make([]interface{}, len(vector))
+	for i, sample := range vector {
+		result[i] = map[string]interface{}{
+			"metric": sample.Metric,
+			"value":  []interface{}{float64(sample.Timestamp.Unix()), sample.Value.String()},
+		}
+	}
+	return result
+}
+
+// convertMatrix converts model.Matrix to our format
+func (c *Client) convertMatrix(matrix model.Matrix) []interface{} {
+	result := make([]interface{}, len(matrix))
+	for i, sampleStream := range matrix {
+		values := make([]interface{}, len(sampleStream.Values))
+		for j, pair := range sampleStream.Values {
+			values[j] = []interface{}{float64(pair.Timestamp.Unix()), pair.Value.String()}
+		}
+		result[i] = map[string]interface{}{
+			"metric": sampleStream.Metric,
+			"values": values,
+		}
+	}
+	return result
+}
+
+// convertScalar converts model.Scalar to our format
+func (c *Client) convertScalar(scalar *model.Scalar) []interface{} {
+	return []interface{}{
+		[]interface{}{float64(scalar.Timestamp.Unix()), scalar.Value.String()},
+	}
+}
+
+// convertString converts model.String to our format
+func (c *Client) convertString(str *model.String) []interface{} {
+	return []interface{}{
+		[]interface{}{float64(str.Timestamp.Unix()), string(str.Value)},
+	}
 }
 
 // TestConnection tests the connection to Prometheus
 func (c *Client) TestConnection(ctx context.Context) error {
-	// Test with a simple query
 	_, err := c.QueryInstant(ctx, "up")
 	if err != nil {
 		return fmt.Errorf("connection test failed: %w", err)
@@ -258,58 +378,25 @@ func (c *Client) TestConnection(ctx context.Context) error {
 
 // GetMetrics returns available metrics
 func (c *Client) GetMetrics(ctx context.Context) ([]string, error) {
-	// Build query URL
-	queryURL := fmt.Sprintf("%s/api/v1/label/__name__/values", c.baseURL)
-
-	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
+	labelValues, warnings, err := c.client.LabelValues(ctx, "__name__", nil, time.Now().Add(-time.Hour), time.Now())
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to get metrics: %w", err)
 	}
 
-	// Set headers
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "prom-etl-db/1.0")
-
-	// Execute request
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("prometheus API returned status %d: %s", resp.StatusCode, string(body))
+	if len(warnings) > 0 {
+		c.logger.Warn("GetMetrics returned warnings", "warnings", warnings)
 	}
 
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+	metrics := make([]string, len(labelValues))
+	for i, value := range labelValues {
+		metrics[i] = string(value)
 	}
 
-	// Parse JSON response
-	var response struct {
-		Status string   `json:"status"`
-		Data   []string `json:"data"`
-	}
-
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
-	}
-
-	// Check response status
-	if response.Status != "success" {
-		return nil, fmt.Errorf("prometheus query failed with status: %s", response.Status)
-	}
-
-	return response.Data, nil
+	return metrics, nil
 }
 
 // Close closes the client
 func (c *Client) Close() error {
-	// HTTP client doesn't need explicit closing
+	// Prometheus client doesn't need explicit closing
 	return nil
 }

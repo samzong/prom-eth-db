@@ -1,6 +1,6 @@
 # Prometheus to MySQL ETL
 
-A Go-based ETL tool that collects Prometheus metrics and stores them in MySQL database with scheduled execution.
+A Go-based ETL tool that collects Prometheus metrics and stores them in MySQL database with scheduled execution using cron expressions.
 
 ## Features
 
@@ -22,7 +22,13 @@ A Go-based ETL tool that collects Prometheus metrics and stores them in MySQL da
 
 ### Configuration
 
-Copy environment template:
+Copy environment template and setup development environment:
+
+```bash
+make setup
+```
+
+Or manually copy the template:
 
 ```bash
 cp env.example .env
@@ -41,9 +47,11 @@ MYSQL_PORT=3306
 MYSQL_DATABASE=prometheus_data
 MYSQL_USERNAME=root
 MYSQL_PASSWORD=password
+MYSQL_CHARSET=utf8mb4
 
 # Application Configuration
 LOG_LEVEL=info
+HTTP_PORT=8080
 WORKER_POOL_SIZE=10
 ```
 
@@ -52,6 +60,10 @@ WORKER_POOL_SIZE=10
 Initialize database schema:
 
 ```bash
+# Using make command
+make db-migrate
+
+# Or manually
 mysql -u root -p prometheus_data < scripts/migrate.sql
 ```
 
@@ -60,12 +72,23 @@ mysql -u root -p prometheus_data < scripts/migrate.sql
 #### Docker Compose
 
 ```bash
+# Start all services with make
+make docker-up
+
+# Or manually
 docker-compose up -d
 ```
 
 #### Local Development
 
 ```bash
+# Build and run with make
+make build
+make run
+# Or using debug mode
+make debug
+
+# Or manually
 go mod download
 go run cmd/server/main.go
 ```
@@ -76,14 +99,16 @@ go run cmd/server/main.go
 
 | Variable             | Description           | Default           |
 | -------------------- | --------------------- | ----------------- |
-| `PROMETHEUS_URL`     | Prometheus server URL | -                 |
+| `PROMETHEUS_URL`     | Prometheus server URL | `http://localhost:9090` |
 | `PROMETHEUS_TIMEOUT` | Query timeout         | `30s`             |
 | `MYSQL_HOST`         | MySQL host            | `localhost`       |
 | `MYSQL_PORT`         | MySQL port            | `3306`            |
 | `MYSQL_DATABASE`     | Database name         | `prometheus_data` |
 | `MYSQL_USERNAME`     | Database username     | `root`            |
-| `MYSQL_PASSWORD`     | Database password     | -                 |
+| `MYSQL_PASSWORD`     | Database password     | `password`        |
+| `MYSQL_CHARSET`      | MySQL charset         | `utf8mb4`         |
 | `LOG_LEVEL`          | Log level             | `info`            |
+| `HTTP_PORT`          | HTTP server port      | `8080`            |
 | `WORKER_POOL_SIZE`   | Worker pool size      | `10`              |
 
 ### Query Configuration
@@ -150,6 +175,8 @@ prom-etl-db/
 │   ├── prometheus/                 # Prometheus client
 │   └── timeparser/                 # Relative time parsing
 ├── scripts/migrate.sql             # Database schema
+├── Makefile                        # Build and development tasks
+├── env.example                     # Environment variables template
 └── docker-compose.yaml             # Container orchestration
 ```
 
@@ -173,16 +200,49 @@ time_range_end: "now/d" # Today 00:00:00
 time_range_step: "1h" # 1 hour intervals
 ```
 
+## Available Make Commands
+
+```bash
+# Development
+make setup          # Setup development environment
+make fmt            # Format Go code
+make clean          # Clean build files
+make build          # Build binary
+make debug          # Run in debug mode
+make run            # Run application (requires build)
+
+# Docker
+make docker-build   # Build Docker image
+make docker-push    # Push Docker image
+make docker-up      # Start Docker services
+make docker-down    # Stop Docker services
+
+# Database
+make db-migrate     # Run database migrations
+make db-reset       # Reset database (WARNING: destructive)
+
+# Help
+make help           # Show all available commands
+```
+
 ## Building
 
 ```bash
+# Setup development environment
+make setup
+
 # Run tests
-go test ./...
+make test
 
 # Build binary
-go build -o prom-etl-db cmd/server/main.go
+make build
 
 # Build Docker image
+make docker-build
+
+# Or manually
+go test ./...
+go build -o build/prom-etl-db cmd/server/main.go
 docker build -t prom-etl-db .
 ```
 
@@ -190,7 +250,9 @@ docker build -t prom-etl-db .
 
 - `github.com/go-sql-driver/mysql` - MySQL driver
 - `github.com/robfig/cron/v3` - Cron scheduler
-- `github.com/spf13/viper` - Configuration management
+- `github.com/prometheus/client_golang` - Official Prometheus client
+- `github.com/prometheus/common` - Prometheus common libraries
+- `github.com/jinzhu/now` - Time parsing utilities
 
 ## License
 

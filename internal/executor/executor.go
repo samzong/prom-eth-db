@@ -168,7 +168,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, queryConfig *models.QueryCo
 		errorMsg := fmt.Sprintf("unsupported result type: %s", response.Data.ResultType)
 		execution.ErrorMessage = &errorMsg
 
-		logger.WithError(queryLogger, fmt.Errorf(errorMsg)).Error("Unsupported result type")
+		queryLogger.Error("Unsupported result type", "error", fmt.Errorf(errorMsg))
 
 		// Store execution record
 		if dbErr := e.db.InsertQueryExecution(execution); dbErr != nil {

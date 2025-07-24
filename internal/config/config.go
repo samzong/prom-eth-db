@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/samzong/prom-etl-db/internal/models"
-	"github.com/spf13/viper"
 )
 
 // LoadConfig loads configuration from environment variables only (no queries)
@@ -72,26 +71,26 @@ func loadFromEnv(config *models.Config) error {
 	return nil
 }
 
-// loadQueriesFromFile loads queries configuration from YAML file
-func loadQueriesFromFile(config *models.Config, configFile string) error {
-	viper.SetConfigFile(configFile)
-	viper.SetConfigType("yaml")
-
-	if err := viper.ReadInConfig(); err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	var fileConfig struct {
-		Queries []models.QueryConfig `yaml:"queries"`
-	}
-
-	if err := viper.Unmarshal(&fileConfig); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	config.Queries = fileConfig.Queries
-	return nil
-}
+// loadQueriesFromFile loads queries configuration from YAML file (unused)
+// func loadQueriesFromFile(config *models.Config, configFile string) error {
+//	viper.SetConfigFile(configFile)
+//	viper.SetConfigType("yaml")
+//
+//	if err := viper.ReadInConfig(); err != nil {
+//		return fmt.Errorf("failed to read config file: %w", err)
+//	}
+//
+//	var fileConfig struct {
+//		Queries []models.QueryConfig `yaml:"queries"`
+//	}
+//
+//	if err := viper.Unmarshal(&fileConfig); err != nil {
+//		return fmt.Errorf("failed to unmarshal config: %w", err)
+//	}
+//
+//	config.Queries = fileConfig.Queries
+//	return nil
+// }
 
 // validateConfig validates the configuration
 func validateConfig(config *models.Config) error {
@@ -164,8 +163,6 @@ func GetDefaultQueries() []models.QueryConfig {
 			Query:         "up",
 			Schedule:      "*/30 * * * * *", // Every 30 seconds
 			Timeout:       "15s",
-			Table:         "service_status",
-			Tags:          []string{"availability", "health"},
 			Enabled:       true,
 			RetryCount:    2,
 			RetryInterval: "5s",

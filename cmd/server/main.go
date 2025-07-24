@@ -53,7 +53,11 @@ func main() {
 		log.Error("Failed to connect to database", "error", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Error("Failed to close database", "error", err)
+		}
+	}()
 
 	// Reload configuration with queries from database
 	cfg, err = config.LoadConfigWithDB(db.GetConn())
@@ -65,13 +69,24 @@ func main() {
 	// Print configuration (mask sensitive data)
 	printConfig(cfg)
 
-	// Create Prometheus client
-	promClient, err := prometheus.NewClient(cfg.Prometheus.URL, cfg.Prometheus.Timeout)
+	// Parse timeout duration
+	timeoutDuration, err := time.ParseDuration(cfg.Prometheus.Timeout)
+	if err != nil {
+		log.Error("Failed to parse Prometheus timeout", "timeout", cfg.Prometheus.Timeout, "error", err)
+		os.Exit(1)
+	}
+
+	// Create Prometheus client with logger
+	promClient, err := prometheus.NewClientWithLogger(cfg.Prometheus.URL, timeoutDuration, log)
 	if err != nil {
 		log.Error("Failed to create Prometheus client", "error", err)
 		os.Exit(1)
 	}
-	defer promClient.Close()
+	defer func() {
+		if err := promClient.Close(); err != nil {
+			log.Error("Failed to close Prometheus client", "error", err)
+		}
+	}()
 
 	// Create executor
 	exec := executor.NewExecutor(promClient, db, log)
