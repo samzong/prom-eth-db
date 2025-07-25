@@ -1,6 +1,5 @@
 build/
 bin/
-.serena/
 .env
 .DS_Store
 .idea/
